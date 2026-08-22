@@ -50,6 +50,7 @@ Do not add a framework or abstraction unless the current boundary actually needs
 - Runtime database: `data/cet_agent.db` (ignored by source control rules).
 - Ollama model storage observed on this machine: `D:\model`.
 - Vocabulary: 13 curated demo words in `data/sample_words.csv` plus 4,598 validated open-data words in `data/cet_vocabulary_open.csv` (3,320 CET4 and 1,278 CET6); the two files do not overlap.
+- Vocabulary/CI cleanup: downloaded ECDICT and FreeDict source archives, the deterministic rebuild copy, and the clean lock-validation virtual environment were removed from the system temp directory after verification. They are reproducible from committed URLs, hashes, lock files, and scripts; no agent-created vocabulary download partials remain.
 - Logs: `logs/cet-agent.log`, rotating and never intended to contain secrets.
 - Detailed Phase 1–9 audit snapshot: `docs/handoff/CET_AGENT_HANDOFF.md`. It is historical context; this `AGENTS.md` is authoritative when the two differ.
 
