@@ -105,6 +105,7 @@ class ReviewPage(QWidget):
         self.favorite_button = card.favorite_button
         self.answer_label = card.answer_label
         self.example_label = card.example_label
+        self.example_translation_label = card.example_translation_label
         self.choice_widget = card.choice_widget
         self.choice_frame = self.choice_widget
         self.choice_help = self.choice_widget.help_label
@@ -179,6 +180,7 @@ class ReviewPage(QWidget):
         self.phonetic_label.clear()
         self.answer_label.clear()
         self.example_label.clear()
+        self.example_translation_label.clear()
         self.favorite_button.setEnabled(False)
         self._hide_learning_aids()
         self._reset_choice_state()
@@ -210,6 +212,7 @@ class ReviewPage(QWidget):
             self.phonetic_label.setText("做得很好，稍后再回来看看吧。")
             self.answer_label.clear()
             self.example_label.clear()
+            self.example_translation_label.clear()
             self.favorite_button.hide()
             self._hide_learning_aids()
             self.choice_frame.hide()
@@ -232,6 +235,7 @@ class ReviewPage(QWidget):
         self._refresh_favorite_button()
         self.answer_label.clear()
         self.example_label.clear()
+        self.example_translation_label.clear()
         self._reset_choice_state()
         self.continue_button.hide()
         self.choice_widget.set_options(self.current.meaning_options)
@@ -260,6 +264,7 @@ class ReviewPage(QWidget):
         self.choice_correct = None
         self.answer_label.setText(self.current.meaning)
         self.example_label.setText(self.current.example)
+        self.example_translation_label.setText(self.current.example_translation)
         self._show_learning_aids(
             self.current.collocations,
             self.current.word_family,
@@ -290,6 +295,7 @@ class ReviewPage(QWidget):
             self.choice_help.setText("回答错误，本题将按 Again 记录。")
             self.answer_label.setText(f"回答错误\n正确释义：{self.current.meaning}")
         self.example_label.setText(self.current.example)
+        self.example_translation_label.setText(self.current.example_translation)
         self._show_learning_aids(
             self.current.collocations,
             self.current.word_family,
@@ -410,6 +416,7 @@ class ReviewPage(QWidget):
             self.phonetic_label.clear()
             self.answer_label.clear()
             self.example_label.clear()
+            self.example_translation_label.clear()
             self.favorite_button.hide()
             self._hide_learning_aids()
             self.choice_frame.hide()
@@ -510,6 +517,7 @@ class ReviewPage(QWidget):
         self.phonetic_label.clear()
         self.answer_label.clear()
         self.example_label.clear()
+        self.example_translation_label.clear()
         self.favorite_button.hide()
         self._hide_learning_aids()
         self.reveal_button.setEnabled(False)

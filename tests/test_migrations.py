@@ -369,6 +369,55 @@ def test_version_six_adds_favorite_wordbook_table(tmp_path) -> None:
         database.dispose()
 
 
+def test_version_seven_adds_word_learning_aids_table(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 7)"
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE words (
+                    id INTEGER PRIMARY KEY
+                )
+                """
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+
+        assert "word_learning_aids" in inspect(database.engine).get_table_names()
+        columns = {
+            column["name"]
+            for column in inspect(database.engine).get_columns("word_learning_aids")
+        }
+        assert {
+            "word_id",
+            "example",
+            "example_translation",
+            "collocations_json",
+            "word_family_json",
+            "generator",
+            "model",
+            "prompt_version",
+            "content_status",
+            "content_hash",
+            "created_at",
+            "updated_at",
+        }.issubset(columns)
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
 def test_newer_database_version_is_rejected(tmp_path) -> None:
     database = make_database(tmp_path)
     try:

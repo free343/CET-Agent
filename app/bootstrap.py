@@ -7,6 +7,7 @@ import shutil
 
 from app.config import ENV_FILE, PROJECT_ROOT, RUNTIME_ROOT, Settings, settings
 from app.db.database import Database
+from app.db.learning_aid_seed import load_learning_aid_records, seed_learning_aids
 from app.db.models import WordLevel
 from app.db.seed import (
     ensure_learning_states,
@@ -29,6 +30,9 @@ def initialize_database(app_settings: Settings = settings) -> Database:
         open_rows = load_vocabulary_rows(
             PROJECT_ROOT / "data" / "cet_vocabulary_open.csv"
         )
+        aid_records = load_learning_aid_records(
+            PROJECT_ROOT / "data" / "word_learning_aids.jsonl"
+        )
         with database.session() as session:
             database.begin_serialized_write(session)
             inserted = sum(
@@ -41,15 +45,18 @@ def initialize_database(app_settings: Settings = settings) -> Database:
                 WordLevel(app_settings.study_level),
                 open_rows,
             )
+            aid_written = seed_learning_aids(session, aid_records)
         logger.info(
             "Database initialized; schema_version=%s inserted_words=%s "
-            "created_states=%s level=%s newly_activated=%s rebased_words=%s",
+            "created_states=%s level=%s newly_activated=%s rebased_words=%s "
+            "learning_aids=%s",
             schema_version,
             inserted,
             missing_states,
             activation.level.value,
             activation.newly_activated,
             activation.rebased_word_count,
+            aid_written,
         )
         return database
     except Exception:

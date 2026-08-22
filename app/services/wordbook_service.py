@@ -8,7 +8,11 @@ from datetime import datetime
 from sqlalchemy import select
 
 from app.db.database import Database
-from app.db.models import FavoriteWord, Word, WordLevel
+from app.db.models import FavoriteWord, Word, WordLearningAid, WordLevel
+from app.services.learning_aid_view import (
+    resolve_example,
+    resolve_example_translation,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +24,7 @@ class FavoriteWordItem:
     example: str
     level: WordLevel
     created_at: datetime
+    example_translation: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,8 +41,9 @@ class WordbookService:
         safe_limit = max(1, min(int(limit), 10_000))
         with self.database.session() as session:
             rows = session.execute(
-                select(Word, FavoriteWord.created_at)
+                select(Word, FavoriteWord.created_at, WordLearningAid)
                 .join(FavoriteWord, FavoriteWord.word_id == Word.id)
+                .outerjoin(WordLearningAid, WordLearningAid.word_id == Word.id)
                 .order_by(FavoriteWord.created_at.desc(), Word.word.asc())
                 .limit(safe_limit)
             ).all()
@@ -47,11 +53,12 @@ class WordbookService:
                     word=word.word,
                     phonetic=word.phonetic,
                     meaning=word.meaning,
-                    example=word.example,
+                    example=resolve_example(word.example, aid),
                     level=word.level,
                     created_at=created_at,
+                    example_translation=resolve_example_translation(aid),
                 )
-                for word, created_at in rows
+                for word, created_at, aid in rows
             ]
 
     def set_favorite(self, word_id: int, favorite: bool) -> FavoriteUpdate:

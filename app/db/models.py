@@ -169,6 +169,36 @@ class FavoriteWord(Base):
     word: Mapped[Word] = relationship()
 
 
+class WordLearningAid(Base):
+    """Validated AI-generated example/collocation/word-family content per word.
+
+    This is a separate one-to-one layer from ``Word`` so generated material
+    never participates in FSRS scheduling, review queues, statistics, or
+    reminders. It is populated only by the validated JSONL import service.
+    """
+
+    __tablename__ = "word_learning_aids"
+
+    word_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), primary_key=True
+    )
+    example: Mapped[str] = mapped_column(Text, default="")
+    example_translation: Mapped[str] = mapped_column(Text, default="")
+    collocations_json: Mapped[str] = mapped_column(Text, default="[]")
+    word_family_json: Mapped[str] = mapped_column(Text, default="[]")
+    generator: Mapped[str] = mapped_column(String(50), default="")
+    model: Mapped[str] = mapped_column(String(200), default="")
+    prompt_version: Mapped[str] = mapped_column(String(50), default="")
+    content_status: Mapped[str] = mapped_column(String(50), default="")
+    content_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=utc_now, onupdate=utc_now
+    )
+
+    word: Mapped[Word] = relationship()
+
+
 class ConfusionEdge(Base):
     __tablename__ = "confusion_edges"
     __table_args__ = (

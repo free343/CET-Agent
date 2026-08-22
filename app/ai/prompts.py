@@ -7,7 +7,7 @@ from collections.abc import Sequence
 
 from app.ai.conversation import ChatExchange, bounded_chat_history
 from app.ai.llm_provider import Message
-from app.ai.schemas import ClusterAnalysis
+from app.ai.schemas import ClusterAnalysis, WordLearningAidGenerationBatch
 from app.domain.study_help import is_memory_help_question
 
 PROMPT_VERSION = "cluster-v1"
@@ -128,3 +128,64 @@ def _context_task_instruction(question: str) -> str:
         "先直接回答问题，再用 CONTEXT 中的一项事实支持答案；"
         "不确定的词源、搭配或辨析必须明确说明不确定，不能编造。"
     )
+
+
+WORD_LEARNING_AIDS_SYSTEM_PROMPT = """You are an English vocabulary learning-aid editor for Chinese CET-4/CET-6 students.
+
+Generate concise, natural learning aids for exactly the supplied words.
+Rules you must always follow:
+- Never invent etymology, word roots, historical origins, homophone stories, or unverifiable morphological relationships.
+- Only include a word_family entry that is a real morphological base or derivative of the target word. Never include mere synonyms, antonyms, or words that are only semantically related.
+- Never include regular plurals, third-person singular, past/continuous forms, comparatives, or superlatives as word_family entries.
+- If a word has no reliable word family, return an empty array for word_family. Quality over quantity.
+- Collocations must be common fixed phrases that contain the target word, not full example sentences or synonym lists.
+- Do not write dictionary-style definitions and do not use "X means ..." as an example sentence.
+- Return exactly one JSON object only. No Markdown, no code fences, no explanations.
+"""
+
+
+def word_learning_aids_messages(
+    items: list[dict[str, str]],
+    *,
+    retry: bool = False,
+) -> list[Message]:
+    """Build the batch prompt for word learning-aid generation.
+
+    ``items`` are the current batch entries with ``word``, ``meaning``,
+    ``level``, ``source_kind``, and ``existing_example`` keys. The model must
+    return the same word multiset it received.
+    """
+    schema = WordLearningAidGenerationBatch.model_json_schema()
+    instruction = (
+        "为下面的每个单词生成学习资料。严格只返回一个符合给定 JSON Schema 的 JSON 对象。\n\n"
+        "对每个词：\n"
+        "1. example：一个完整英文例句（6—18 个英文单词，最多 160 字符）。"
+        "必须以独立词形、大小写不敏感地包含该词头的精确拼写，"
+        "使用 meaning 中最常用、最适合 CET 学习的一个含义，语法自然、语境具体。"
+        "若 existing_example 非空（精选词），example 必须逐字符等于 existing_example，不得改写。\n"
+        "2. example_translation：对应整句的自然中文翻译，不逐词直译、不额外讲解。\n"
+        "3. collocations：2—4 个常见固定搭配，与来源义相关，"
+        "每个含 phrase（英文，最多 80 字符）和 meaning（简明中文，最多 80 字符）。\n"
+        "4. word_family：0—4 个真实同族或派生词，宁缺毋滥；"
+        "每个含 word（单个英文词头）、part_of_speech（n./v./adj./adv. 等）、"
+        "meaning（简明中文，最多 120 字符）、relation（base 或 derivative）。\n\n"
+        "返回的 items 必须与输入的 items 完全一一对应：不缺失、不新增、不重复、不改词。\n\n"
+        f"INPUT:\n{json.dumps({'items': items}, ensure_ascii=False, sort_keys=True)}\n\n"
+        f"JSON_SCHEMA:\n{json.dumps(schema, ensure_ascii=False, sort_keys=True)}"
+    )
+    messages: list[Message] = [
+        {"role": "system", "content": WORD_LEARNING_AIDS_SYSTEM_PROMPT},
+        {"role": "user", "content": instruction},
+    ]
+    if retry:
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "上一次输出未通过校验（可能缺词、多词、重复词、字段非法、"
+                    "例句未包含目标词独立词形、或词族含屈折/伪派生）。"
+                    "请重新输出完整、合法、与输入一一对应的 JSON 对象。"
+                ),
+            }
+        )
+    return messages

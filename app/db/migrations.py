@@ -11,6 +11,7 @@ from app.db.models import (
     FavoriteWord,
     ReminderReviewLease,
     StudyLevelActivation,
+    WordLearningAid,
 )
 
 Migration = Callable[[Connection], None]
@@ -170,6 +171,10 @@ def _add_favorite_wordbook(connection: Connection) -> None:
     FavoriteWord.__table__.create(bind=connection, checkfirst=True)
 
 
+def _add_word_learning_aids(connection: Connection) -> None:
+    WordLearningAid.__table__.create(bind=connection, checkfirst=True)
+
+
 MIGRATIONS: dict[int, Migration] = {
     1: _create_initial_schema,
     2: _add_fsrs_card_state,
@@ -178,6 +183,7 @@ MIGRATIONS: dict[int, Migration] = {
     5: _repair_demo_learning_states,
     6: _add_review_undo_snapshots,
     7: _add_favorite_wordbook,
+    8: _add_word_learning_aids,
 }
 CURRENT_SCHEMA_VERSION = max(MIGRATIONS)
 

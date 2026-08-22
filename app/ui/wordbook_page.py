@@ -86,9 +86,12 @@ class WordbookPage(QWidget):
         for word in items:
             phonetic = f"  {word.phonetic}" if word.phonetic else ""
             example = f"\n{word.example}" if word.example else ""
+            translation = (
+                f"\n{word.example_translation}" if word.example_translation else ""
+            )
             item = QListWidgetItem(
                 f"{word.word}{phonetic}    [{word.level.value}]\n"
-                f"{word.meaning}{example}"
+                f"{word.meaning}{example}{translation}"
             )
             item.setData(Qt.ItemDataRole.UserRole, word.word_id)
             self.word_list.addItem(item)

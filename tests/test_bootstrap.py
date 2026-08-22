@@ -120,3 +120,40 @@ def test_runtime_config_template_is_installed_without_overwrite(
     target.write_text("user-owned\n", encoding="utf-8")
     bootstrap._install_runtime_config_template()
     assert target.read_text(encoding="utf-8") == "user-owned\n"
+
+
+def test_bootstrap_disposes_database_when_learning_aids_are_malformed(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    from app.db.learning_aid_seed import LearningAidDataError
+
+    disposed = {"done": False}
+
+    class TrackingDatabase:
+        def __init__(self, _url) -> None:
+            pass
+
+        @staticmethod
+        def upgrade_schema() -> int:
+            return 8
+
+        @staticmethod
+        def session():
+            raise AssertionError("session must not open before aid validation")
+
+        def dispose(self) -> None:
+            disposed["done"] = True
+
+    monkeypatch.setattr("app.bootstrap.Database", lambda _url: TrackingDatabase(_url))
+    monkeypatch.setattr(
+        "app.bootstrap.load_learning_aid_records",
+        lambda _path: (_ for _ in ()).throw(LearningAidDataError("malformed aids")),
+    )
+
+    with pytest.raises(LearningAidDataError):
+        initialize_database(
+            Settings(database_url=f"sqlite:///{(tmp_path / 'failure.db').as_posix()}")
+        )
+
+    assert disposed["done"] is True

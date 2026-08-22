@@ -10,13 +10,26 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.database import Database
-from app.db.models import FavoriteWord, LearningState, ReviewLog, Word, WordLevel
+from app.db.models import (
+    FavoriteWord,
+    LearningState,
+    ReviewLog,
+    Word,
+    WordLearningAid,
+    WordLevel,
+)
 from app.db.repositories import LearningStateRepository, ReviewLogRepository
 from app.domain.fsrs_scheduler import Rating, ReviewScheduleResult, schedule_review
 from app.domain.meaning_quiz import (
     MeaningCandidate,
     MeaningOption,
     build_meaning_options,
+)
+from app.services.learning_aid_view import (
+    format_collocations,
+    format_word_family,
+    resolve_example,
+    resolve_example_translation,
 )
 from app.utils.datetime_utils import ensure_utc, utc_now
 
@@ -36,6 +49,7 @@ class ReviewItem:
     next_review_at: datetime
     meaning_options: tuple[MeaningOption, ...] = ()
     is_favorite: bool = False
+    example_translation: str = ""
     collocations: tuple[str, ...] = ()
     word_family: tuple[str, ...] = ()
 
@@ -87,6 +101,14 @@ class ReviewService:
                     )
                 )
             )
+            aid_by_word_id = {
+                aid.word_id: aid
+                for aid in session.scalars(
+                    select(WordLearningAid).where(
+                        WordLearningAid.word_id.in_(state.word_id for state in states)
+                    )
+                )
+            }
             candidates_by_level = self._meaning_candidates_by_level(session, states)
             return [
                 ReviewItem(
@@ -94,7 +116,10 @@ class ReviewService:
                     word=state.word.word,
                     phonetic=state.word.phonetic,
                     meaning=state.word.meaning,
-                    example=state.word.example,
+                    example=resolve_example(
+                        state.word.example,
+                        aid_by_word_id.get(state.word.id),
+                    ),
                     level=state.word.level,
                     lapse_count=state.lapse_count,
                     error_count=state.error_count,
@@ -109,6 +134,11 @@ class ReviewService:
                         candidates_by_level.get(state.word.level, []),
                     ),
                     is_favorite=state.word.id in favorite_ids,
+                    example_translation=resolve_example_translation(
+                        aid_by_word_id.get(state.word.id)
+                    ),
+                    collocations=format_collocations(aid_by_word_id.get(state.word.id)),
+                    word_family=format_word_family(aid_by_word_id.get(state.word.id)),
                 )
                 for state in states
             ]
