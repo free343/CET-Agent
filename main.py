@@ -46,7 +46,9 @@ def run(*, smoke_test: bool = False) -> int:
         )
         window.show()
         if smoke_test:
-            QTimer.singleShot(250, application.quit)
+            # Exercise the real close path so page/reminder workers finish
+            # before the event loop exits and the Database is disposed.
+            QTimer.singleShot(250, window.close)
         return application.exec()
     except Exception:
         logger.exception("Application startup failed")

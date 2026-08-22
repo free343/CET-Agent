@@ -9,6 +9,7 @@ from functools import partial
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QFrame,
     QHBoxLayout,
@@ -148,7 +149,7 @@ class MainWindow(QMainWindow):
             self.analysis_page.refresh()
 
     def _check_reminder(self) -> None:
-        if self._closing_after_workers:
+        if self._shutdown_started:
             return
         self._enqueue_reminder_task(
             "evaluate",
@@ -323,3 +324,6 @@ class MainWindow(QMainWindow):
             return
         self._closing_after_workers = False
         self.close()
+        application = QApplication.instance()
+        if application is not None:
+            application.quit()

@@ -133,6 +133,7 @@ Local Ollama:
 - `app/domain/query_routing.py` owns an injectable deterministic policy that normalizes input and returns an explainable `LOCAL`, `CONFIRM_ADVANCED`, or `REFUSE` decision with bounded confidence. English markers use word boundaries, and an off-topic marker is overridden only by explicit metalinguistic intent such as asking for a meaning or translation. Long or complex language tasks require explicit user choice; an LLM never selects the model.
 - The local assistant rejects empty, general-chat, real-time, and professional out-of-scope requests without calling a model. The Chat UI consumes the structured route instead of comparing a magic confidence threshold.
 - Questions above 4,000 normalized characters are refused before any Provider call. Providers request at most 2,048 output tokens, ordinary answers are bounded to 4,000 characters, model names to 200 characters, and the Chat/Analysis text documents retain only 200/300 blocks respectively.
+- Chat keeps at most the four most recent successful in-session exchanges and applies a separate 6,000-character history budget before prompt construction. Failed, degraded, refused, and incomplete exchanges are never retained; history is intentionally memory-only and disappears when the application closes.
 
 ### Reminder and desktop lifecycle
 
@@ -147,7 +148,7 @@ Local Ollama:
 - Each application process owns a renewable 10-minute active-review lease. Entering/reviewing publishes it, leaving or closing releases it, expired leases are deleted during evaluation, and any live instance lease suppresses notifications across all windows.
 - `app/infrastructure/notification_adapter.py` provides a Qt system-tray notification.
 - `app/ui/widgets/reminder_banner.py` contains the actionable “start review” and “snooze 30 minutes” buttons.
-- `app/ui/main_window.py` waits for active dashboard, review, analysis, and chat QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues.
+- `app/ui/main_window.py` waits for active dashboard, review, analysis, chat, and reminder QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues. The smoke path closes the real window instead of terminating the event loop around live workers, and deferred close explicitly ends the application after a hidden window has released its final lease.
 
 ### Resilience and diagnostics
 
@@ -175,14 +176,15 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 161 passed in 4.93s | 2026-08-22 |
+| Full pytest suite | 167 passed in 5.92s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 84 files already formatted | 2026-08-22 |
-| Mypy application/scripts check | exit code 0; 55 source files | 2026-08-22 |
+| Ruff format gate | 87 files already formatted | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 56 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
 | Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
 | Cross-instance active-review lease | independent owners coexist; releasing one preserves another; observer notifications are suppressed; expired leases are removed; hidden review-worker results cannot republish activity | 2026-08-22 |
 | AI capacity budgets | oversized question refusal, 4,000-character chat truncation, 32,000-character structured raw guard, bounded schema fields/lists/options, 2,048-token Provider requests, and 200/300-block UI documents passed | 2026-08-22 |
+| Bounded in-session chat context | four-exchange/6,000-character budgets, complete-pair retention, prompt role order, and second-question UI context propagation passed; history remains memory-only | 2026-08-22 |
 | Concurrent fresh bootstrap | three repeated two-worker runs on separate fresh databases all returned 4,611 words and one activation per worker; regression test also passed | 2026-08-22 |
 | Bootstrap/logging failure safety | forced schema-upgrade failure disposed its Database; simultaneous logging configuration registered exactly one file/console handler pair | 2026-08-22 |
 | Per-level first activation | fresh CET4 rebased exactly 3,320 untouched open words once; later CET6 activation independently rebased 1,278; repeat startup preserved the original activation | 2026-08-22 |
@@ -202,7 +204,7 @@ Update this section after every material change. Never report a feature as verif
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup smoke | exit code 0; runtime schema upgraded 3→4; close deferred for lease-release worker and then completed without QThread destruction | 2026-08-22 |
+| Offscreen startup/shutdown smoke | 10 consecutive exit-code-0 runs; subprocess regression passed; real close path waits for lease-release worker and explicitly quits after hidden deferred close, eliminating the prior `0xC0000409` crash and post-close hang | 2026-08-22 |
 | SQLite integrity and foreign keys | schema v4; 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations; no stale review leases | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
@@ -212,7 +214,7 @@ Update this section after every material change. Never report a feature as verif
 | Latest warm full local-AI validation | exit code 0 on schema v4 repeat startup; chat 2.606s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
 | Live uncached bounded structured output | `accept/except` analysis under the 2,048-token Provider limit returned non-degraded schema-valid output for both words; 829 JSON characters | 2026-08-22 |
 | Frozen writable-path resolution | source/frozen/local-app-data/home-fallback/relative-database cases plus non-overwriting `.env.example` install passed | 2026-08-22 |
-| Windows onedir package | PyInstaller 6.22.0 build passed; packaged smoke created schema v4 with 4,611 words and `integrity_check=ok` under isolated `LOCALAPPDATA`; package directory remained state-free; 328 files, 138,820,361 bytes | 2026-08-22 |
+| Windows onedir package | rebuilt with the bounded-chat/shutdown changes; packaged smoke exited 0, created schema v4 with 4,611 words and `integrity_check=ok` under isolated `LOCALAPPDATA`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
 | Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; native toast/tray timing remains | 2026-08-22 |
 
 Baseline commands:
@@ -239,7 +241,6 @@ python main.py
 ### P2: product completeness
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
-- Chat is intentionally single-turn and has no bounded conversation persistence.
 - Complete the remaining native Windows validation for tray/toast behavior, real 30-minute snooze timing, and closing during an uncached active AI request.
 
 ### P3: delivery engineering
@@ -289,6 +290,8 @@ python main.py
 38. Expiring review leases: active-review suppression is a per-instance lease table rather than a singleton flag. Multiple windows may coexist, each owner can release only itself, evaluations prune expired crash remnants, and the five-minute reminder heartbeat renews a ten-minute lease.
 39. Layered AI capacity budgets: deterministic routing rejects oversized inputs, Provider requests cap generation tokens, Service output is truncated or rejected before construction/cache, Pydantic caps every structured field and collection, and Qt documents prune old blocks. No single layer is trusted as the only bound.
 40. Frozen path ownership: packaged resources are immutable inputs, while every mutable artifact belongs under a per-user local application-data root. Source mode intentionally preserves repository-local paths for developer ergonomics; packaged smoke must override `LOCALAPPDATA` and prove the distribution tree stays unchanged.
+41. Ephemeral bounded conversation: follow-up questions may use only recent complete successful exchanges, capped independently by count and characters. Conversation state belongs to the current Chat page, is never written to SQLite, and cannot turn a refused or degraded response into future prompt context.
+42. Event-loop-owned shutdown: smoke and interactive close both enter the real window close path. Application exit occurs only after every page/reminder worker has finished and the process-owned review lease has been released, including when the window is already hidden during deferred close.
 
 ## 8. Development constraints
 

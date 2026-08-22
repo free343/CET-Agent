@@ -163,6 +163,7 @@ def test_reminder_check_enqueues_atomic_evaluation() -> None:
 
     window_like = SimpleNamespace(
         _closing_after_workers=False,
+        _shutdown_started=False,
         reminder_service=SimpleNamespace(evaluate_and_claim=evaluate_and_claim),
         _enqueue_reminder_task=enqueue,
     )

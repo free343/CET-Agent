@@ -20,6 +20,7 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 - Ollama 与 OpenAI-compatible LLM Provider 接口；
 - Pydantic 结构化输出、一次 JSON 重试、安全降级与 AI 结果缓存；
 - AI 输入、Provider 输出 token、结构化字段/列表和界面文本块均有显式容量上限；
+- AI 助手支持有界的会话内追问：最多保留最近 4 组成功问答和 6,000 个历史字符，关闭应用后自动清空；
 - 独立 Embedding Provider 及 SQLite 缓存；
 - 可解释的确定性问题路由：本地回答、确认高级模型或直接拒绝越界请求；
 - demo 学习历史和 pytest 核心测试。
@@ -133,7 +134,7 @@ EMBEDDING_BASE_URL=http://127.0.0.1:11434
 EMBEDDING_MODEL=nomic-embed-text
 ```
 
-先在 Ollama 中准备对应模型，再启动 CET-Agent。Ollama chat 使用 `/api/chat`，Embedding 使用 `/api/embed`；结构化错词分析将 Pydantic JSON Schema 传入请求并在本地再次验证。模型未启动、模型不存在、网络错误或非法 JSON 都会显示可恢复的降级结果。
+先在 Ollama 中准备对应模型，再启动 CET-Agent。Ollama chat 使用 `/api/chat`，Embedding 使用 `/api/embed`；结构化错词分析将 Pydantic JSON Schema 传入请求并在本地再次验证。普通词汇问答会在当前界面内携带最多 4 组完整成功问答作为追问上下文，但不会把对话写入数据库。模型未启动、模型不存在、网络错误或非法 JSON 都会显示可恢复的降级结果。
 
 Windows 可直接使用本机 Ollama 可执行文件下载并验证：
 

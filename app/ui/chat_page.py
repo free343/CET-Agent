@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Sequence
 from typing import Protocol
 
 from PySide6.QtWidgets import (
@@ -15,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.ai.conversation import MAX_CHAT_HISTORY_EXCHANGES, ChatExchange
 from app.ai.schemas import AIAnswer
 from app.domain.query_routing import QueryAssessment, QueryRoute, QueryRoutingPolicy
 from app.ui.widgets.async_worker import AsyncWorker
@@ -28,7 +31,13 @@ class ChatService(Protocol):
 
     def route_question(self, question: str) -> QueryAssessment: ...
 
-    def ask(self, question: str, *, use_advanced: bool = False) -> AIAnswer: ...
+    def ask(
+        self,
+        question: str,
+        *,
+        use_advanced: bool = False,
+        history: Sequence[ChatExchange] = (),
+    ) -> AIAnswer: ...
 
 
 class ChatPage(QWidget):
@@ -36,6 +45,7 @@ class ChatPage(QWidget):
         super().__init__()
         self.service = service
         self.pending_question = ""
+        self.history: deque[ChatExchange] = deque(maxlen=MAX_CHAT_HISTORY_EXCHANGES)
         self.worker: AsyncWorker | None = None
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
@@ -106,8 +116,13 @@ class ChatPage(QWidget):
         self._set_input_enabled(False)
         self.transcript.append("CET-Agent：正在思考…")
         question = self.pending_question
+        history = tuple(self.history)
         self.worker = AsyncWorker(
-            lambda: self.service.ask(question, use_advanced=use_advanced),
+            lambda: self.service.ask(
+                question,
+                use_advanced=use_advanced,
+                history=history,
+            ),
             parent=self,
         )
         self.worker.result_ready.connect(self._show_answer)
@@ -121,6 +136,17 @@ class ChatPage(QWidget):
             f"CET-Agent：{answer.text}\n"
             f"置信度 {answer.confidence:.0%} · {answer.model}{suffix}\n"
         )
+        if (
+            self.pending_question
+            and not answer.degraded
+            and answer.model != "scope-policy"
+        ):
+            self.history.append(
+                ChatExchange(
+                    user=self.pending_question,
+                    assistant=answer.text,
+                )
+            )
 
     def _show_failure(self, message: str) -> None:
         self.transcript.append(f"CET-Agent：请求失败：{message}\n")

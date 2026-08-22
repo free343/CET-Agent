@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
+from collections.abc import Sequence
 
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
+from app.ai.conversation import ChatExchange
 from app.ai.llm_provider import LLMProvider, LLMUnavailableError
 from app.ai.prompts import PROMPT_VERSION, chat_messages, cluster_analysis_messages
 from app.ai.schemas import (
@@ -54,7 +56,13 @@ class AIService:
     def route_question(self, question: str) -> QueryAssessment:
         return self.routing_policy.assess(question)
 
-    def ask(self, question: str, *, use_advanced: bool = False) -> AIAnswer:
+    def ask(
+        self,
+        question: str,
+        *,
+        use_advanced: bool = False,
+        history: Sequence[ChatExchange] = (),
+    ) -> AIAnswer:
         assessment = self.route_question(question)
         if assessment.route is QueryRoute.REFUSE:
             return AIAnswer(
@@ -71,7 +79,7 @@ class AIService:
                 degraded=True,
             )
         try:
-            text = provider.generate(chat_messages(question))
+            text = provider.generate(chat_messages(question, history))
             return AIAnswer(
                 text=self._bounded_chat_text(text),
                 confidence=assessment.confidence,

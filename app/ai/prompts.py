@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 
+from app.ai.conversation import ChatExchange, bounded_chat_history
 from app.ai.llm_provider import Message
 from app.ai.schemas import ClusterAnalysis
 
@@ -54,8 +56,17 @@ def cluster_analysis_messages(payload: dict, *, retry: bool = False) -> list[Mes
     return messages
 
 
-def chat_messages(question: str) -> list[Message]:
-    return [
-        {"role": "system", "content": CHAT_SYSTEM_PROMPT},
-        {"role": "user", "content": question},
-    ]
+def chat_messages(
+    question: str,
+    history: Sequence[ChatExchange] = (),
+) -> list[Message]:
+    messages: list[Message] = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+    for exchange in bounded_chat_history(history):
+        messages.extend(
+            (
+                {"role": "user", "content": exchange.user},
+                {"role": "assistant", "content": exchange.assistant},
+            )
+        )
+    messages.append({"role": "user", "content": question})
+    return messages
