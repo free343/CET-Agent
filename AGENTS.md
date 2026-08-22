@@ -50,10 +50,10 @@ Do not add a framework or abstraction unless the current boundary actually needs
 - Source-mode runtime database: `data/cet_agent.db` (ignored by source control rules). Frozen Windows builds use `%LOCALAPPDATA%\CET-Agent\data\cet_agent.db`; logs and the local `.env`/template use the same writable application root.
 - Ollama model storage observed on this machine: `D:\model`.
 - Vocabulary: 13 curated demo words in `data/sample_words.csv` plus 4,598 validated open-data words in `data/cet_vocabulary_open.csv` (3,320 CET4 and 1,278 CET6); the two files do not overlap.
-- Vocabulary/CI cleanup: downloaded ECDICT and FreeDict source archives, the deterministic rebuild copy, and the clean lock-validation virtual environment were removed from the system temp directory after verification. They are reproducible from committed URLs, hashes, lock files, and scripts; no agent-created vocabulary download partials remain.
+- Vocabulary/CI cleanup: downloaded ECDICT and FreeDict source archives, the deterministic rebuild copy, and the clean lock-validation virtual environment were removed from the system temp directory after verification. They are reproducible from committed URLs, hashes, lock files, and scripts; no agent-created vocabulary download partials remain. One ignored packaged-smoke runtime remains under `build/packaged-smoke-v5-runtime` as local validation output and contains only an isolated generated database/log/config template.
 - Logs: `logs/cet-agent.log`, rotating and never intended to contain secrets.
 - Detailed Phase 1–9 audit snapshot: `docs/handoff/CET_AGENT_HANDOFF.md`. It is historical context; this `AGENTS.md` is authoritative when the two differ.
-- Windows installer compiler: Inno Setup 6.7.3 at `C:\Users\Admin\AppData\Local\Programs\Inno Setup 6\ISCC.exe`; its downloaded installer had a valid Pyrsys B.V. Authenticode signature. The compiler remains installed for repeatable local builds, while its downloaded setup cache and all installer-validation runtimes were deleted.
+- Windows installer compiler: Inno Setup 6.7.3 at `C:\Users\Admin\AppData\Local\Programs\Inno Setup 6\ISCC.exe`; its downloaded installer had a valid Pyrsys B.V. Authenticode signature. The compiler remains installed for repeatable local builds, while its downloaded setup cache and external installer-validation runtimes were deleted; the ignored packaged-smoke output retained in `build/` is documented above.
 
 Local Ollama:
 
@@ -185,7 +185,8 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 196 passed in 7.22s | 2026-08-22 |
+| Full pytest suite | 196 passed in 8.80s | 2026-08-22 |
+| Python dependency integrity | `pip check` reported no broken requirements | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
 | Ruff format gate | 95 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 61 source files | 2026-08-22 |
@@ -218,8 +219,8 @@ Update this section after every material change. Never report a feature as verif
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup/shutdown smoke | prior 20-run lifecycle baseline plus five consecutive post-workspace runs and the schema-v5 migration run exited 0 through the real close path; subprocess regression passed and no process remained | 2026-08-22 |
-| SQLite integrity and foreign keys | schema v5; 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations; no stale review leases | 2026-08-22 |
+| Offscreen startup/shutdown smoke | latest schema-v5 run exited 0 through the real deferred-close path; prior 20-run lifecycle baseline, post-workspace repetitions, and subprocess regression also passed | 2026-08-22 |
+| SQLite integrity and foreign keys | schema v5; 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations, invalid reviewed-without-time FSRS rows, or stale review leases | 2026-08-22 |
 | Runtime demo-state repair | pre-v5 backup created under ignored `data/backups`; six impossible reviewed-without-time states became zero; `adapt` retained exactly its one real correct review; 28 demo ReviewLogs remained; repaired `adept` and preserved `adapt` both produced valid FSRS schedules | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
@@ -232,7 +233,7 @@ Update this section after every material change. Never report a feature as verif
 | Frozen writable-path resolution | source/frozen/local-app-data/home-fallback/relative-database cases plus non-overwriting `.env.example` install passed | 2026-08-22 |
 | Windows onedir package | schema-v5/grounded-memory rebuild includes Windows-Toasts/WinRT binaries and distribution license metadata; isolated smoke exited 0, created schema v5 with 4,611 words and `integrity_check=ok`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
 | Unsigned Windows installer | Inno Setup 6.7.3 compiled the final schema-v5/grounded-memory `CET-Agent-Setup-0.1.0.exe` (44.70 MiB, SHA-256 `D46E6300B42EA162D5D06247D441271F015C614A7FF2296B1DDF651A644A58C9`, intentionally `NotSigned`). The unchanged current-user install/uninstall flow previously passed executable/shortcut/registry creation, installed smoke, and byte-for-byte learning-data preservation | 2026-08-22 |
-| Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; Snooze then immediate close exited with zero process/lease remnants; a controlled 15-second local Provider proved close began with two live workers before the response and exited automatically after completion; final installed build visibly rendered the actionable in-app reminder while the matching native Toast existed in Windows history | 2026-08-22 |
+| Visible Windows desktop flow | prior detailed navigation/reminder/review/analysis/AI/settings/close tests passed; in the current acceptance pass the user confirmed all currently implemented functions behaved without issue. The latest real post-v5 record saved `continue` with `rating=EASY` and `question_type=meaning_choice_correct`; no ERROR/WARNING appears after the first schema-v5 startup | 2026-08-22 |
 
 Baseline commands:
 
@@ -257,9 +258,14 @@ python main.py
 
 ## 6. Known incomplete work
 
-### Product acceptance
+### Current defect status
 
-- Automated, static, local-AI, source-smoke, frozen-smoke, and installer-build validation is complete for the schema-v5/grounded-memory build. Visible Windows acceptance should retest a correct four-choice answer followed by each 1/2/3/4 rating, the “怎么记” response while advancing cards, splitter resizing/collapse, long Chinese option wrapping, wrong-choice feedback, and the five-word continuation button after an actually completed day.
+- No reproducible functional defect is open at the current `main` head. Automated/static/local-AI/source/frozen/installer checks are green, the post-v5 runtime log contains a successful real four-choice rating and no later errors, and the user completed visible acceptance of the currently implemented functions in the current pass without reporting a problem.
+
+### Content and model limitations
+
+- Only the 13 curated demo entries have saved example sentences; all 4,598 open-vocabulary entries currently have validated headwords, phonetics, and Chinese meanings but an empty `example`. Grounded memory help safely falls back to word/meaning recall, but “讲例句” cannot explain a source example that the wordbank does not contain. A future example corpus must have auditable redistribution rights, deterministic validation, and provenance before bundling.
+- `qwen2.5:3b` remains a small local model. Grounded memory help removes unsafe invented hooks, and simple example explanations work, but open-ended deep grammar/usage/distinction answers may still be shallow. The independent advanced Provider path exists but remains disabled until a larger local model or an explicitly configured compatible endpoint is selected.
 
 ### Deferred delivery work
 
