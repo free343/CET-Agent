@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
         self.notification_adapter = QtNotificationAdapter(
             self,
             self._start_review_from_reminder,
+            self._snooze_reminder,
         )
         self.reminder_timer = QTimer(self)
         self.reminder_timer.setInterval(5 * 60 * 1000)

@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from PyInstaller.utils.hooks import copy_metadata
+
 
 project_root = Path(SPECPATH).parent
 data_files = (
@@ -13,13 +15,26 @@ data_files = (
     (project_root / "README.md", "."),
     (project_root / "THIRD_PARTY_NOTICES.md", "."),
 )
+metadata_files = []
+for distribution in (
+    "Windows-Toasts",
+    "winrt-runtime",
+    "winrt-Windows.Data.Xml.Dom",
+    "winrt-Windows.Foundation",
+    "winrt-Windows.Foundation.Collections",
+    "winrt-Windows.UI.Notifications",
+):
+    metadata_files += copy_metadata(distribution)
 
 a = Analysis(
     [str(project_root / "main.py")],
     pathex=[str(project_root)],
     binaries=[],
-    datas=[(str(source), target) for source, target in data_files],
-    hiddenimports=[],
+    datas=[(str(source), target) for source, target in data_files]
+    + metadata_files,
+    # The Windows notification backend is loaded with importlib so source mode
+    # can remain portable when the platform-specific dependency is absent.
+    hiddenimports=["windows_toasts"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

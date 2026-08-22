@@ -92,8 +92,26 @@ typing-extensions==4.16.0
     #   pydantic-core
     #   sqlalchemy
     #   typing-inspection
+    #   winrt-runtime
 typing-inspection==0.4.4
     # via pydantic
+windows-toasts==1.3.1 ; sys_platform == "win32"
+    # via -r requirements.txt
+winrt-runtime==3.2.1
+    # via
+    #   windows-toasts
+    #   winrt-windows-data-xml-dom
+    #   winrt-windows-foundation
+    #   winrt-windows-foundation-collections
+    #   winrt-windows-ui-notifications
+winrt-windows-data-xml-dom==3.2.1
+    # via windows-toasts
+winrt-windows-foundation==3.2.1
+    # via windows-toasts
+winrt-windows-foundation-collections==3.2.1
+    # via windows-toasts
+winrt-windows-ui-notifications==3.2.1
+    # via windows-toasts
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

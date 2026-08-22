@@ -73,3 +73,22 @@ SOFTWARE.
 
 The license text is available at
 <https://creativecommons.org/licenses/by-sa/3.0/legalcode>.
+
+## Windows-Toasts 1.3.1
+
+- Project: <https://github.com/DatGuy1/Windows-Toasts>
+- Copyright: DatGuy and contributors
+- License: Apache License 2.0
+- Use in CET-Agent: actionable native Windows toast notifications.
+
+The license text is available at
+<https://www.apache.org/licenses/LICENSE-2.0>.
+
+## Python/WinRT 3.2.1 runtime packages
+
+- Project: <https://github.com/pywinrt/pywinrt>
+- Copyright: Microsoft Corporation and contributors
+- License: MIT
+- Use in CET-Agent: Windows Runtime notification APIs required by Windows-Toasts.
+
+The MIT license text is reproduced in the py-fsrs notice above.

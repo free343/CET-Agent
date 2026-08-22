@@ -44,7 +44,7 @@ Do not add a framework or abstraction unless the current boundary actually needs
 - Workspace: `D:\work\english`.
 - The workspace is a local Git repository on branch `main`, initialized with a baseline commit on 2026-08-22. No remote is configured; inspect files before editing and preserve unrelated work.
 - Python target: 3.11+.
-- Runtime stack: PySide6, SQLite, SQLAlchemy 2.x, py-fsrs 6.3.2, Pydantic, httpx, python-dotenv.
+- Runtime stack: PySide6, SQLite, SQLAlchemy 2.x, py-fsrs 6.3.2, Pydantic, httpx, python-dotenv, and Windows-Toasts 1.3.1/WinRT 3.2.1 on Windows.
 - Test runner: pytest.
 - Main entry point: `main.py`.
 - Source-mode runtime database: `data/cet_agent.db` (ignored by source control rules). Frozen Windows builds use `%LOCALAPPDATA%\CET-Agent\data\cet_agent.db`; logs and the local `.env`/template use the same writable application root.
@@ -53,6 +53,7 @@ Do not add a framework or abstraction unless the current boundary actually needs
 - Vocabulary/CI cleanup: downloaded ECDICT and FreeDict source archives, the deterministic rebuild copy, and the clean lock-validation virtual environment were removed from the system temp directory after verification. They are reproducible from committed URLs, hashes, lock files, and scripts; no agent-created vocabulary download partials remain.
 - Logs: `logs/cet-agent.log`, rotating and never intended to contain secrets.
 - Detailed Phase 1–9 audit snapshot: `docs/handoff/CET_AGENT_HANDOFF.md`. It is historical context; this `AGENTS.md` is authoritative when the two differ.
+- Windows installer compiler: Inno Setup 6.7.3 at `C:\Users\Admin\AppData\Local\Programs\Inno Setup 6\ISCC.exe`; its downloaded installer had a valid Pyrsys B.V. Authenticode signature. The compiler remains installed for repeatable local builds, while its downloaded setup cache and all installer-validation runtimes were deleted.
 
 Local Ollama:
 
@@ -147,8 +148,9 @@ Local Ollama:
 - Main-window reminder evaluation, snooze persistence, and post-session completion checks share one FIFO `AsyncWorker` queue. Duplicate timer evaluations are coalesced, and no reminder database operation blocks Qt event handling.
 - Snooze and notification claims return an absolute persisted cooldown-expiry time. A dedicated single-shot Qt timer schedules that exact re-evaluation while the five-minute heartbeat remains as recovery for restart, sleep, clock changes, and duplicate-instance races.
 - Each application process owns a renewable 10-minute active-review lease. Entering/reviewing publishes it, leaving or closing releases it, expired leases are deleted during evaluation, and any live instance lease suppresses notifications across all windows.
-- `app/infrastructure/notification_adapter.py` provides a Qt system-tray notification.
-- `app/ui/widgets/reminder_banner.py` contains the actionable “start review” and “snooze 30 minutes” buttons.
+- `app/infrastructure/notification_adapter.py` keeps the Qt system tray and prefers Windows-Toasts on Windows. Native Toast and the in-app banner both expose “start review” and “snooze 30 minutes”; native callbacks are queued through a Qt signal bridge before touching UI state. Native initialization/send failures degrade to the Qt tray bubble.
+- Installer-marked frozen builds use the dedicated `CET.Agent.Desktop` AUMID created by the Start Menu shortcut. Source/portable runs cannot claim that identity merely because an installed shortcut also exists. Every process tracks and removes only its own Toast rows during close, so dead action buttons do not remain and one instance cannot clear another instance's notification history.
+- `app/ui/widgets/reminder_banner.py` remains the always-visible in-app copy of both notification actions.
 - `app/ui/main_window.py` waits for active dashboard, review, analysis, chat, and reminder QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues. Attaching a close watcher is followed by an `isRunning()` re-check, so a worker that finishes between discovery and signal connection cannot leave the hidden window waiting forever. The smoke path closes the real window instead of terminating the event loop around live workers, and deferred close explicitly ends the application after a hidden window has released its final lease.
 
 ### Resilience and diagnostics
@@ -169,7 +171,8 @@ Local Ollama:
 - `requirements.txt` and `requirements-dev.txt` declare compatible direct dependencies; the corresponding `.lock` files pin the complete tested runtime and development dependency trees. Regenerate them with pip-tools 7.6.1 after changing a direct dependency.
 - `pyproject.toml` centralizes the Python 3.11 Ruff and Mypy baselines. The entire Python tree is Ruff-formatted; CI rejects lint, format, or application/script type-check drift.
 - `.github/workflows/ci.yml` runs on Windows for Python 3.11 and 3.13 with read-only repository permission. It installs the development lock, runs `pip check`, Ruff lint/format, Mypy, all tests, and the offscreen startup smoke. No Git remote is configured yet, so the workflow is locally validated but has not had a hosted run.
-- `packaging/CET-Agent.spec` builds a windowed PyInstaller 6.22.0 onedir release, bundles only the required vocabulary/license/config resources, and explicitly excludes the unused `fsrs.optimizer` scientific-training stack. CI builds and launches the package with isolated `LOCALAPPDATA`, then asserts writable database, log, and config-template paths.
+- `packaging/CET-Agent.spec` builds a windowed PyInstaller 6.22.0 onedir release, includes the Windows-Toasts/WinRT extensions and license metadata plus required vocabulary/config resources, and explicitly excludes the unused `fsrs.optimizer` scientific-training stack. CI builds and launches the package with isolated `LOCALAPPDATA`, then asserts writable database, log, and config-template paths.
+- `packaging/CET-Agent.iss` and `scripts/build_windows_installer.py` create an unsigned current-user Inno Setup installer from the onedir tree. It uses a stable AppId, installs below `%LOCALAPPDATA%\Programs\CET-Agent`, creates a dedicated-AUMID Start Menu shortcut and optional desktop shortcut, and intentionally leaves `%LOCALAPPDATA%\CET-Agent` learning/config/log data intact on uninstall.
 
 ## 5. Verification ledger
 
@@ -177,13 +180,14 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 171 passed in 6.36s | 2026-08-22 |
+| Full pytest suite | 175 passed in 6.62s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 87 files already formatted | 2026-08-22 |
-| Mypy application/scripts check | exit code 0; 56 source files | 2026-08-22 |
+| Ruff format gate | 89 files already formatted | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 57 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
 | Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
 | Exact reminder wake-up | persisted Snooze and claimed-notification cooldowns expose one absolute 30-minute expiry; UI millisecond conversion is exact, non-negative, and Qt-bounded; restart evaluation reconstructs the same target; focused reminder/UI tests passed | 2026-08-22 |
+| Actionable Windows notifications | four focused tests passed: exact Start/Snooze action payloads, background-thread callback delivery on the Qt GUI thread, frozen install-marker/AUMID selection, native-send failure fallback, and per-process Toast cleanup. A live installed Toast was present under `CET.Agent.Desktop` with both exact action arguments; process close reduced that history from 1 to 0 | 2026-08-22 |
 | Cross-instance active-review lease | independent owners coexist; releasing one preserves another; observer notifications are suppressed; expired leases are removed; hidden review-worker results cannot republish activity | 2026-08-22 |
 | AI capacity budgets | oversized question refusal, 4,000-character chat truncation, 32,000-character structured raw guard, bounded schema fields/lists/options, 2,048-token Provider requests, and 200/300-block UI documents passed | 2026-08-22 |
 | Bounded in-session chat context | four-exchange/6,000-character budgets, complete-pair retention, prompt role order, and second-question UI context propagation passed; history remains memory-only | 2026-08-22 |
@@ -216,8 +220,9 @@ Update this section after every material change. Never report a feature as verif
 | Latest warm full local-AI validation | exit code 0 on schema v4 repeat startup; chat 2.606s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
 | Live uncached bounded structured output | `accept/except` analysis under the 2,048-token Provider limit returned non-degraded schema-valid output for both words; 829 JSON characters | 2026-08-22 |
 | Frozen writable-path resolution | source/frozen/local-app-data/home-fallback/relative-database cases plus non-overwriting `.env.example` install passed | 2026-08-22 |
-| Windows onedir package | rebuilt with bounded chat, safe shutdown, and exact reminder wake-up; packaged smoke exited 0, created schema v4 with 4,611 words and `integrity_check=ok` under isolated `LOCALAPPDATA`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
-| Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; Snooze then immediate close exited with zero process/lease remnants; a controlled 15-second local Provider proved close began with two live workers before the response and exited automatically after completion | 2026-08-22 |
+| Windows onedir package | final rebuild includes Windows-Toasts/WinRT binaries and distribution license metadata; isolated smoke exited 0, created schema v4 with 4,611 words and `integrity_check=ok`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
+| Unsigned Windows installer | Inno Setup 6.7.3 compiled `CET-Agent-Setup-0.1.0.exe` (44.68 MiB, SHA-256 `6D72CBD2FD5734FBC36056FF87D67F90921878EDA984271C3E37C1DF97D2C1F9`, intentionally `NotSigned`). Current-user silent install created executable/uninstaller/install marker/Start shortcut/registry entry; installed smoke produced schema v4, 4,611 words and `integrity_check=ok`; silent uninstall removed program/shortcut/registry while preserving the learning database byte-for-byte | 2026-08-22 |
+| Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; Snooze then immediate close exited with zero process/lease remnants; a controlled 15-second local Provider proved close began with two live workers before the response and exited automatically after completion; final installed build visibly rendered the actionable in-app reminder while the matching native Toast existed in Windows history | 2026-08-22 |
 
 Baseline commands:
 
@@ -235,19 +240,18 @@ python scripts/create_demo_data.py
 python scripts/benchmark_confusion_graph.py
 python scripts/validate_local_ai.py
 & 'C:\Users\Admin\AppData\Local\Programs\Ollama\ollama.exe' list
+python -m PyInstaller --noconfirm --clean packaging/CET-Agent.spec
+python scripts/build_windows_installer.py
 python main.py
 ```
 
 ## 6. Known incomplete work
 
-### P2: product completeness
+### Deferred delivery work
 
-- Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
-- Complete the remaining native Windows validation for tray/toast presentation. Exact 30-minute Snooze expiry is covered by deterministic service/UI scheduling tests without making the test suite wait in real time; closing during a confirmed active uncached Provider request is verified.
-
-### P3: delivery engineering
-
-- The onedir Windows release is repeatable and smoke-tested, but there is no installer yet. Application icon/version resources, digital signatures/code-signing, and Git-remote/hosted-CI work are explicitly deferred by current user direction and are not part of the active closure scope.
+- Application icon, Windows executable version resources, digital/code signing and its pipeline, and Git remote/hosted CI execution are explicitly deferred by current user direction. The current installer is therefore intentionally unsigned and uses default generated executable/installer resources.
+- The locally installed Inno Setup 6.7.3 compiler identifies itself as “Non-commercial use only”. This is sufficient for the present local/non-commercial validation; any commercial distribution must use an appropriately licensed Inno Setup compiler or replace the installer toolchain.
+- A physical human click on both buttons in the real Windows notification flyout is not recorded. The system accepted a dedicated-AUMID Toast containing both exact action nodes, and callback routing/thread affinity is deterministically tested, but a future release checklist should retain a two-click manual acceptance check on each supported Windows version.
 
 ## 7. Key design decisions
 
@@ -295,6 +299,9 @@ python main.py
 42. Event-loop-owned shutdown: smoke and interactive close both enter the real window close path. Application exit occurs only after every page/reminder worker has finished and the process-owned review lease has been released, including when the window is already hidden during deferred close.
 43. Lost-finish recovery: a close watcher must connect to `finished` before checking the worker state again. The signal covers future completion and the post-connection state check covers completion that raced ahead of the connection; duplicate deferred-close scheduling is harmless and preferable to a hidden hung process.
 44. Absolute reminder wake-up: persisted cooldown state owns the target time and the UI owns only timer scheduling. Both heartbeat and one-shot paths re-evaluate through the same atomic policy; no UI timer is allowed to bypass the database claim or independently decide to notify.
+45. Layered notification delivery: deterministic ReminderService state decides whether a reminder exists; the operating-system adapter decides only how to present it. Native callbacks must enter Qt through a queued signal, and any native backend failure falls back to the tray without changing notification claims or scheduling.
+46. Notification identity ownership: only a frozen executable carrying the installer-only marker and matching Start shortcut may claim the dedicated AUMID. All source, portable, and installed processes remove their own tracked CET-Agent Toasts individually and never clear a whole identity, preserving reminders owned by concurrent instances.
+47. Current-user installer ownership: the installer copies only immutable program files under the user's Programs directory. Mutable learning state remains in the separate application-data root and survives upgrades/uninstall. Stable AppId/AUMID values are release compatibility contracts even while icon, version-resource, signature, and remote-delivery work is deferred.
 
 ## 8. Development constraints
 
