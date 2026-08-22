@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 
 from sqlalchemy import Connection, Engine, inspect, text
 
-from app.db.models import Base, StudyLevelActivation
+from app.db.models import Base, ReminderReviewLease, StudyLevelActivation
 
 Migration = Callable[[Connection], None]
 
@@ -56,10 +56,15 @@ def _add_study_level_activation(connection: Connection) -> None:
     StudyLevelActivation.__table__.create(bind=connection, checkfirst=True)
 
 
+def _add_reminder_review_leases(connection: Connection) -> None:
+    ReminderReviewLease.__table__.create(bind=connection, checkfirst=True)
+
+
 MIGRATIONS: dict[int, Migration] = {
     1: _create_initial_schema,
     2: _add_fsrs_card_state,
     3: _add_study_level_activation,
+    4: _add_reminder_review_leases,
 }
 CURRENT_SCHEMA_VERSION = max(MIGRATIONS)
 

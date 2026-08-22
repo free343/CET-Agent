@@ -121,6 +121,29 @@ def test_version_two_database_adds_level_activation_table(tmp_path) -> None:
         database.dispose()
 
 
+def test_version_three_database_adds_reminder_review_leases(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 3)"
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+        assert "reminder_review_leases" in inspect(database.engine).get_table_names()
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
 def test_newer_database_version_is_rejected(tmp_path) -> None:
     database = make_database(tmp_path)
     try:

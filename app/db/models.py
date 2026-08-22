@@ -244,3 +244,15 @@ class ReminderRuntimeState(Base):
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, onupdate=utc_now
     )
+
+
+class ReminderReviewLease(Base):
+    """Per-process lease used to suppress reminders during active reviews."""
+
+    __tablename__ = "reminder_review_leases"
+
+    owner_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    lease_until: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=utc_now, onupdate=utc_now
+    )

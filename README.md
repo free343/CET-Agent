@@ -14,7 +14,7 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 - SQLite + SQLAlchemy 2.x 本地数据层，显式版本迁移、首次启动自动建表并幂等导入经验证的开放词库；
 - 官方 FSRS-6 调度器，维护 Difficulty、Stability、学习阶段与下一次复习时间；
 - 完整 ReviewLog：评分、正确性、耗时、题型、答案和调度前后状态；
-- 确定性复习队列、统计和主动提醒策略，支持 30 分钟 Snooze；
+- 确定性复习队列、统计和主动提醒策略，支持 30 分钟 Snooze、后台原子通知领取和多窗口复习租约；
 - Personal Vocabulary Confusion Graph 与 connected-components 词簇；
 - 拼写、语义、共错和时间相关度的混合评分；
 - Ollama 与 OpenAI-compatible LLM Provider 接口；
@@ -219,7 +219,7 @@ python scripts/benchmark_confusion_graph.py
 - 超过 8 个词的 cluster 只把加权度最高的核心词提供给 LLM；
 - Prompt 只存在于 `app/ai/prompts.py`，输入仅含 Service 提取的必要结构化统计；
 - 聊天问题由 `app/domain/query_routing.py` 先做确定性范围和复杂度判断；路由会返回决策、置信度与原因，LLM 不参与选择自身或高级模型；
-- 提醒策略是纯函数；系统托盘消息与应用内“开始复习 / 30 分钟后提醒”操作分离。
+- 提醒策略是纯函数；系统托盘消息与应用内“开始复习 / 30 分钟后提醒”操作分离。多窗口通过原子 cooldown 领取避免重复通知，并用每实例短期租约共享“正在复习”状态。
 
 ## 项目结构
 

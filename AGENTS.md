@@ -69,10 +69,10 @@ Local Ollama:
 ### Bootstrap and persistence
 
 - `app/bootstrap.py` configures logging, upgrades the database schema, validates and idempotently imports both bundled vocabulary files, creates missing LearningState rows, and activates the selected study level inside one serialized startup transaction. If any initialization step fails, it disposes the newly created Database/Engine before propagating the failure.
-- `app/db/migrations.py` owns the explicit sequential schema registry, currently version 3. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application. Schema v3 adds persistent per-level activation state.
+- `app/db/migrations.py` owns the explicit sequential schema registry, currently version 4. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application. Schema v3 adds persistent per-level activation state; schema v4 adds per-instance active-review leases.
 - `app/config.py` loads `.env`, resolves relative SQLite paths from the project root, and owns all model, graph, reminder, and logging configuration.
 - Malformed environment values and unsafe model/graph/reminder configuration are rejected at startup: model endpoints must be absolute HTTP(S) URLs, thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
-- `app/db/models.py` defines Word, LearningState, ReviewLog, ConfusionEdge, AIAnalysis, EmbeddingCache, StudyLevelActivation, and ReminderRuntimeState.
+- `app/db/models.py` defines Word, LearningState, ReviewLog, ConfusionEdge, AIAnalysis, EmbeddingCache, StudyLevelActivation, ReminderRuntimeState, and ReminderReviewLease.
 - UTC-aware values are converted through a custom SQLAlchemy type so stored SQLite timestamps are consistent and loaded values regain UTC awareness.
 - SQLite review writes acquire `BEGIN IMMEDIATE` before reading LearningState because SQLite ignores `SELECT ... FOR UPDATE`; competing application windows therefore cannot both overwrite the same prior state.
 - SQLite connections install a 15-second busy timeout and perform a bounded locked/busy retry while first negotiating WAL mode, so simultaneous first launches can converge on one fresh database instead of failing before the serialized migration transaction begins.
@@ -142,6 +142,7 @@ Local Ollama:
 - A newly due word on the same day clears a stale completed state.
 - A far-future persisted notification timestamp cannot suppress reminders indefinitely after a system-clock correction; only a small rollback within the configured cooldown remains suppressed.
 - Main-window reminder evaluation, snooze persistence, and post-session completion checks share one FIFO `AsyncWorker` queue. Duplicate timer evaluations are coalesced, and no reminder database operation blocks Qt event handling.
+- Each application process owns a renewable 10-minute active-review lease. Entering/reviewing publishes it, leaving or closing releases it, expired leases are deleted during evaluation, and any live instance lease suppresses notifications across all windows.
 - `app/infrastructure/notification_adapter.py` provides a Qt system-tray notification.
 - `app/ui/widgets/reminder_banner.py` contains the actionable “start review” and “snooze 30 minutes” buttons.
 - `app/ui/main_window.py` waits for active dashboard, review, analysis, and chat QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues.
@@ -171,12 +172,13 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 144 passed in 4.86s | 2026-08-22 |
+| Full pytest suite | 148 passed in 5.13s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
 | Ruff format gate | 82 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 54 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
 | Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
+| Cross-instance active-review lease | independent owners coexist; releasing one preserves another; observer notifications are suppressed; expired leases are removed; hidden review-worker results cannot republish activity | 2026-08-22 |
 | Concurrent fresh bootstrap | three repeated two-worker runs on separate fresh databases all returned 4,611 words and one activation per worker; regression test also passed | 2026-08-22 |
 | Bootstrap/logging failure safety | forced schema-upgrade failure disposed its Database; simultaneous logging configuration registered exactly one file/console handler pair | 2026-08-22 |
 | Per-level first activation | fresh CET4 rebased exactly 3,320 untouched open words once; later CET6 activation independently rebased 1,278; repeat startup preserved the original activation | 2026-08-22 |
@@ -190,14 +192,14 @@ Update this section after every material change. Never report a feature as verif
 | 100-candidate graph performance | 100 errors per candidate and all 4,950 edges: 0.932s, 0.907s, 0.913s; median 0.913s; exact one-cluster invariant passed | 2026-08-22 |
 | Locked dependency install | clean Python 3.13 virtual environment installed `requirements-dev.lock`; `pip check` passed; Python 3.11/win_amd64 wheel-resolution dry run passed | 2026-08-22 |
 | GitHub Actions workflow | Windows Python 3.11/3.13 matrix defined with current official v7 checkout/setup actions; local-equivalent full gate passed; hosted run pending remote configuration | 2026-08-22 |
-| Schema migration matrix | 6 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS mapping, v2→v3 level activation, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
+| Schema migration matrix | 7 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS mapping, v2→v3 level activation, v3→v4 review leases, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
 | Official FSRS-6 reference vectors | initial Again/Hard/Good/Easy plus five-review sequence passed against py-fsrs 6.3.2 | 2026-08-22 |
 | Deterministic randomized algorithm invariants | 6,000 checks passed | 2026-08-22 |
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup smoke | three consecutive schema-v3 startup/exit runs passed with asynchronous dashboard and serialized reminder workers; no QThread destruction or database-disposal failure | 2026-08-22 |
-| SQLite integrity and foreign keys | 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations | 2026-08-22 |
+| Offscreen startup smoke | exit code 0; runtime schema upgraded 3→4; close deferred for lease-release worker and then completed without QThread destruction | 2026-08-22 |
+| SQLite integrity and foreign keys | schema v4; 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations; no stale review leases | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
 | Ollama embedding through cached provider | 2 vectors, dimension 768; cold 20.159s; cache rows 0→2→2 | 2026-08-22 |
@@ -231,7 +233,6 @@ python main.py
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
 - Chat is intentionally single-turn and has no bounded conversation persistence.
-- Multiple application instances now share notification cooldown claims, but they do not yet publish an active-review lease; one instance can therefore notify while another instance is actively reviewing.
 - Structured AI fields and the visible in-session chat transcript do not yet have explicit size/count budgets.
 - Complete the remaining native Windows validation for tray/toast behavior, real 30-minute snooze timing, and closing during an uncached active AI request.
 
@@ -280,6 +281,7 @@ python main.py
 35. Convergent bootstrap: connection-level WAL negotiation receives the same bounded busy tolerance as transactional writes, every first-start mutation remains serialized and idempotent, and the bootstrap function owns disposal whenever it cannot return a usable Database.
 36. Page-owned background work: each interactive page permits at most one database/model worker at a time, renders results only on the Qt thread, and exposes its active worker to the main-window deferred-close coordinator. Dashboard refreshes coalesce; review submissions preserve the current card until persistence succeeds.
 37. Atomic reminder claim: the persisted runtime row is authoritative at evaluation time. A process may present a notification only after it records the cooldown under the SQLite writer reservation; local startup snapshots never decide cross-process ownership. Reminder database actions are FIFO-serialized off the GUI thread.
+38. Expiring review leases: active-review suppression is a per-instance lease table rather than a singleton flag. Multiple windows may coexist, each owner can release only itself, evaluations prune expired crash remnants, and the five-minute reminder heartbeat renews a ten-minute lease.
 
 ## 8. Development constraints
 

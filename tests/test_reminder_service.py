@@ -4,8 +4,13 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Barrier
 
-from app.db.models import ReminderRuntimeState
-from app.services.reminder_service import ReminderService
+from sqlalchemy import func, select
+
+from app.db.models import ReminderReviewLease, ReminderRuntimeState
+from app.services.reminder_service import (
+    REVIEW_SESSION_LEASE_DURATION,
+    ReminderService,
+)
 from app.services.review_service import ReviewService
 from app.utils.datetime_utils import UTC
 
@@ -71,3 +76,54 @@ def test_concurrent_services_atomically_claim_one_notification(
         state = session.get(ReminderRuntimeState, 1)
         assert state is not None
         assert state.last_notification_at == NOW
+
+
+def test_other_instance_review_lease_suppresses_notification(
+    database,
+    word_id,
+) -> None:
+    active = ReminderService(
+        ReviewService(database),
+        clock=lambda: NOW,
+        instance_id="active-window",
+    )
+    observer = ReminderService(
+        ReviewService(database),
+        clock=lambda: NOW,
+        instance_id="observer-window",
+    )
+    active.publish_review_session(True, NOW)
+
+    suppressed = observer.evaluate_and_claim(NOW)
+
+    assert suppressed.decision.should_notify is False
+    assert suppressed.decision.reason == "review_session_active"
+    active.publish_review_session(False, NOW)
+    available = observer.evaluate_and_claim(NOW)
+    assert available.decision.should_notify is True
+
+
+def test_review_leases_are_per_instance_and_expire(database, word_id) -> None:
+    services = [
+        ReminderService(
+            ReviewService(database),
+            clock=lambda: NOW,
+            instance_id=instance_id,
+        )
+        for instance_id in ("window-a", "window-b", "observer")
+    ]
+    first, second, observer = services
+    first.publish_review_session(True, NOW)
+    second.publish_review_session(True, NOW)
+    first.publish_review_session(False, NOW)
+
+    assert observer.evaluate(NOW).decision.reason == "review_session_active"
+    with database.session() as session:
+        assert session.scalar(select(func.count(ReminderReviewLease.owner_id))) == 1
+
+    expired_at = NOW + REVIEW_SESSION_LEASE_DURATION + timedelta(seconds=1)
+    status = observer.evaluate(expired_at)
+
+    assert status.decision.should_notify is True
+    with database.session() as session:
+        assert session.scalar(select(func.count(ReminderReviewLease.owner_id))) == 0

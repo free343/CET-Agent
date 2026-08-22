@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections import deque
 from collections.abc import Callable
+from functools import partial
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(APP_STYLESHEET)
         self.reminder_service = reminder_service
         self._closing_after_workers = False
+        self._shutdown_started = False
         self.reminder_worker: AsyncWorker | None = None
         self.reminder_worker_action: str | None = None
         self._reminder_tasks: deque[tuple[str, Callable[[], object]]] = deque()
@@ -78,7 +80,7 @@ class MainWindow(QMainWindow):
         self.dashboard_page = DashboardPage(learning_service)
         self.review_page = ReviewPage(
             review_service,
-            self.dashboard_page.refresh,
+            self._review_completed,
             self._review_session_changed,
         )
         self.analysis_page = AnalysisPage(analysis_service, ai_service)
@@ -134,6 +136,8 @@ class MainWindow(QMainWindow):
         self.dashboard_page.refresh()
 
     def show_page(self, index: int) -> None:
+        if self.pages.currentIndex() == 1 and index != 1:
+            self._review_session_changed(False)
         self.pages.setCurrentIndex(index)
         if index == 0:
             self.dashboard_page.refresh()
@@ -163,7 +167,16 @@ class MainWindow(QMainWindow):
         self._enqueue_reminder_task("snooze", self.reminder_service.snooze)
 
     def _review_session_changed(self, active: bool) -> None:
+        if active and (
+            self._closing_after_workers
+            or self.pages.currentWidget() is not self.review_page
+        ):
+            return
         self.reminder_service.set_review_session_active(active)
+        self._enqueue_reminder_task(
+            "publish_review_session",
+            partial(self.reminder_service.publish_review_session, active),
+        )
         if active:
             # Manual navigation to Review must dismiss an already visible
             # reminder just like the banner's own "start review" action.
@@ -174,6 +187,10 @@ class MainWindow(QMainWindow):
                 self._mark_review_complete_if_empty,
                 coalesce=True,
             )
+
+    def _review_completed(self) -> None:
+        self.dashboard_page.refresh()
+        self._review_session_changed(True)
 
     def _mark_review_complete_if_empty(self) -> int:
         remaining_due = self.reminder_service.remaining_due_count()
@@ -249,12 +266,19 @@ class MainWindow(QMainWindow):
         self._start_next_reminder_task()
 
     def closeEvent(self, event) -> None:
+        if not self._shutdown_started:
+            self._shutdown_started = True
+            self.reminder_timer.stop()
+            self.reminder_service.set_review_session_active(False)
+            self._enqueue_reminder_task(
+                "release_review_session",
+                partial(self.reminder_service.publish_review_session, False),
+            )
         active_workers = self._active_workers()
         if active_workers:
             event.ignore()
             if not self._closing_after_workers:
                 self._closing_after_workers = True
-                self.reminder_timer.stop()
                 self.reminder_banner.hide()
                 self.notification_adapter.close()
                 self.hide()

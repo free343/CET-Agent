@@ -48,15 +48,29 @@ class FakeReminderService:
     def mark_today_completed(self) -> None:
         self.completed = True
 
+    @staticmethod
+    def publish_review_session(_active: bool) -> None:
+        pass
+
 
 def test_starting_review_hides_visible_reminder_banner() -> None:
     app = QApplication.instance() or QApplication([])
     banner = ReminderBanner()
     banner.show_reminder(13, 4)
     reminder_service = FakeReminderService()
+    review_page = object()
+    queued: list[tuple[str, object, bool]] = []
+
+    def enqueue(action, function, *, coalesce=False):
+        queued.append((action, function, coalesce))
+
     window_like = SimpleNamespace(
         reminder_service=reminder_service,
         reminder_banner=banner,
+        _closing_after_workers=False,
+        pages=SimpleNamespace(currentWidget=lambda: review_page),
+        review_page=review_page,
+        _enqueue_reminder_task=enqueue,
     )
 
     MainWindow._review_session_changed(window_like, True)
@@ -64,7 +78,30 @@ def test_starting_review_hides_visible_reminder_banner() -> None:
 
     assert reminder_service.session_states == [True]
     assert banner.isHidden() is True
+    assert [(action, coalesce) for action, _function, coalesce in queued] == [
+        ("publish_review_session", False)
+    ]
     banner.deleteLater()
+
+
+def test_hidden_review_worker_cannot_republish_active_lease() -> None:
+    reminder_service = FakeReminderService()
+    review_page = object()
+    queued: list[object] = []
+    window_like = SimpleNamespace(
+        _closing_after_workers=False,
+        pages=SimpleNamespace(currentWidget=lambda: object()),
+        review_page=review_page,
+        reminder_service=reminder_service,
+        reminder_banner=ReminderBanner(),
+        _enqueue_reminder_task=lambda *args, **kwargs: queued.append((args, kwargs)),
+    )
+
+    MainWindow._review_session_changed(window_like, True)
+
+    assert reminder_service.session_states == []
+    assert queued == []
+    window_like.reminder_banner.deleteLater()
 
 
 def test_active_workers_include_dashboard_and_review_tasks() -> None:
@@ -107,7 +144,11 @@ def test_inactive_review_enqueues_completion_check() -> None:
     MainWindow._review_session_changed(window_like, False)
 
     assert reminder_service.session_states == [False]
-    assert queued == [("complete_if_empty", completion_task, True)]
+    assert [action for action, _function, _coalesce in queued] == [
+        "publish_review_session",
+        "complete_if_empty",
+    ]
+    assert queued[1] == ("complete_if_empty", completion_task, True)
     window_like.reminder_banner.deleteLater()
 
 

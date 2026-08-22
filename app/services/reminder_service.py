@@ -7,15 +7,18 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from threading import Lock
+from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, settings
-from app.db.models import ReminderRuntimeState
+from app.db.models import ReminderReviewLease, ReminderRuntimeState
 from app.domain.reminder_policy import ReminderContext, ReminderDecision, ReminderPolicy
 from app.services.review_service import ReviewService
 from app.utils.datetime_utils import ensure_utc, utc_now
+
+REVIEW_SESSION_LEASE_DURATION = timedelta(minutes=10)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +34,7 @@ class ReminderService:
         review_service: ReviewService,
         app_settings: Settings = settings,
         clock: Callable[[], datetime] = utc_now,
+        instance_id: str | None = None,
     ) -> None:
         self.review_service = review_service
         self._clock = clock
@@ -39,6 +43,9 @@ class ReminderService:
             end_time=app_settings.reminder_end_time,
             cooldown=timedelta(minutes=app_settings.reminder_cooldown_minutes),
         )
+        self.instance_id = (instance_id or uuid4().hex).strip()
+        if not self.instance_id or len(self.instance_id) > 64:
+            raise ValueError("Reminder instance_id must contain 1 to 64 characters")
         self.last_notification_time: datetime | None = None
         self.last_snooze_time: datetime | None = None
         self.today_completed = False
@@ -78,7 +85,16 @@ class ReminderService:
                 state.completed_local_date = None
                 today_completed = False
             with self._session_state_lock:
-                review_session_active = self.review_session_active
+                local_review_active = self.review_session_active
+            self._update_review_lease(
+                session,
+                active=local_review_active,
+                checked_at=checked_at,
+            )
+            review_session_active = self._has_active_review_lease(
+                session,
+                checked_at,
+            )
             decision = self.policy.evaluate(
                 ReminderContext(
                     current_time=checked_at,
@@ -118,6 +134,21 @@ class ReminderService:
         with self._session_state_lock:
             self.review_session_active = active
 
+    def publish_review_session(
+        self,
+        active: bool,
+        now: datetime | None = None,
+    ) -> None:
+        checked_at = ensure_utc(now or self._clock())
+        self.set_review_session_active(active)
+        with self.review_service.database.session() as session:
+            self.review_service.database.begin_serialized_write(session)
+            self._update_review_lease(
+                session,
+                active=active,
+                checked_at=checked_at,
+            )
+
     def mark_today_completed(self, now: datetime | None = None) -> None:
         checked_at = ensure_utc(now or self._clock())
         local_date = checked_at.astimezone().date()
@@ -155,3 +186,42 @@ class ReminderService:
         self.last_notification_time = state.last_notification_at
         self.last_snooze_time = state.last_snooze_at
         self.today_completed = state.completed_local_date == local_date.isoformat()
+
+    def _update_review_lease(
+        self,
+        session: Session,
+        *,
+        active: bool,
+        checked_at: datetime,
+    ) -> None:
+        session.execute(
+            delete(ReminderReviewLease).where(
+                ReminderReviewLease.lease_until <= checked_at
+            )
+        )
+        lease = session.get(ReminderReviewLease, self.instance_id)
+        if not active:
+            if lease is not None:
+                session.delete(lease)
+            return
+        lease_until = checked_at + REVIEW_SESSION_LEASE_DURATION
+        if lease is None:
+            session.add(
+                ReminderReviewLease(
+                    owner_id=self.instance_id,
+                    lease_until=lease_until,
+                )
+            )
+        else:
+            lease.lease_until = lease_until
+
+    @staticmethod
+    def _has_active_review_lease(session: Session, checked_at: datetime) -> bool:
+        return (
+            session.scalar(
+                select(ReminderReviewLease.owner_id)
+                .where(ReminderReviewLease.lease_until > checked_at)
+                .limit(1)
+            )
+            is not None
+        )
