@@ -116,7 +116,7 @@ class ReviewPage(QWidget):
             if self.on_session_state_changed:
                 self.on_session_state_changed(bool(self.queue))
             self._show_next()
-        except Exception as exc:  # GUI boundary: log detail, show safe message.
+        except Exception:  # GUI boundary: log detail, show safe message.
             logger.exception("Could not load review queue")
             self.queue = []
             self.current = None
@@ -129,7 +129,7 @@ class ReviewPage(QWidget):
             self.reveal_button.setEnabled(False)
             self._set_ratings_enabled(False)
             self.progress.clear()
-            self._show_error(f"暂时无法读取复习任务：{exc}")
+            self._show_error("暂时无法读取复习任务，请稍后重试。")
 
     def _show_next(self) -> None:
         if not self.queue:
@@ -169,9 +169,9 @@ class ReviewPage(QWidget):
         response_ms = int((time.monotonic() - self.started_at) * 1000)
         try:
             self.service.submit_review(self.current.word_id, rating, response_ms)
-        except Exception as exc:  # GUI must survive database and validation errors.
+        except Exception:  # GUI must survive database and validation errors.
             logger.exception("Review submission failed")
-            self._show_error(f"本次记录未保存，请稍后重试：{exc}")
+            self._show_error("本次记录未保存，请稍后重试。")
             return
         if self.on_reviewed:
             self.on_reviewed()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime, timedelta
 
 import pytest
@@ -47,3 +48,23 @@ def test_temporal_score_prefers_close_errors() -> None:
     close = temporal_score([NOW], [NOW + timedelta(hours=1)])
     far = temporal_score([NOW], [NOW + timedelta(days=5)])
     assert 0.0 <= far < close <= 1.0
+
+
+def test_temporal_score_matches_brute_force_for_unsorted_histories() -> None:
+    first = [NOW + timedelta(hours=value) for value in (12, 0, 5, 2)]
+    second = [NOW + timedelta(hours=value) for value in (9, 1, 20)]
+    tau = timedelta(hours=24)
+
+    def brute_force(source, target) -> list[float]:
+        return [
+            math.exp(
+                -min(abs((item - candidate).total_seconds()) for candidate in target)
+                / tau.total_seconds()
+            )
+            for item in source
+        ]
+
+    expected_scores = brute_force(first, second) + brute_force(second, first)
+    expected = sum(expected_scores) / len(expected_scores)
+
+    assert temporal_score(first, second, tau) == pytest.approx(expected)

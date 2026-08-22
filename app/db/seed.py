@@ -110,11 +110,17 @@ def load_vocabulary_rows(csv_path: Path) -> list[VocabularySeedRow]:
 
 def seed_words(session: Session, csv_path: Path) -> int:
     rows = load_vocabulary_rows(csv_path)
-    existing = set(session.scalars(select(Word.word)))
+    existing = {word.word: word for word in session.scalars(select(Word)).all()}
     inserted = 0
     seeded_at = utc_now()
     for row in rows:
-        if row.word in existing:
+        existing_word = existing.get(row.word)
+        if existing_word is not None:
+            existing_word.phonetic = row.phonetic
+            existing_word.meaning = row.meaning
+            existing_word.example = row.example
+            existing_word.level = row.level
+            existing_word.frequency = row.frequency
             continue
         word = Word(
             word=row.word,
@@ -128,7 +134,7 @@ def seed_words(session: Session, csv_path: Path) -> int:
             next_review_at=seeded_at + timedelta(days=row.initial_delay_days)
         )
         session.add(word)
-        existing.add(row.word)
+        existing[row.word] = word
         inserted += 1
     session.flush()
     return inserted

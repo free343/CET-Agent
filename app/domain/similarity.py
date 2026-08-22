@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from bisect import bisect_left
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 
@@ -95,20 +96,22 @@ def temporal_score(
     """Average exp(-delta/tau) using each error's nearest opposite error."""
     if not errors_a or not errors_b or tau.total_seconds() <= 0:
         return 0.0
-    first = [ensure_utc(value) for value in errors_a]
-    second = [ensure_utc(value) for value in errors_b]
+    first = sorted(ensure_utc(value) for value in errors_a)
+    second = sorted(ensure_utc(value) for value in errors_b)
     tau_seconds = tau.total_seconds()
 
     def nearest_decay(
         source: Sequence[datetime], target: Sequence[datetime]
     ) -> list[float]:
-        return [
-            math.exp(
-                -min(abs((item - candidate).total_seconds()) for candidate in target)
-                / tau_seconds
+        scores: list[float] = []
+        for item in source:
+            insertion = bisect_left(target, item)
+            neighbours = target[max(0, insertion - 1) : insertion + 1]
+            nearest_seconds = min(
+                abs((item - candidate).total_seconds()) for candidate in neighbours
             )
-            for item in source
-        ]
+            scores.append(math.exp(-nearest_seconds / tau_seconds))
+        return scores
 
     scores = nearest_decay(first, second) + nearest_decay(second, first)
     return max(0.0, min(1.0, sum(scores) / len(scores)))

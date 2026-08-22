@@ -23,6 +23,6 @@ class AsyncWorker(QThread):
     def run(self) -> None:
         try:
             self.result_ready.emit(self.function(*self.args))
-        except Exception as exc:
+        except Exception:
             logger.exception("Asynchronous UI task failed")
-            self.failed.emit(str(exc))
+            self.failed.emit("后台任务执行失败，请稍后重试。")

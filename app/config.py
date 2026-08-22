@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import time
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -15,17 +16,23 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 
 def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.getenv(name, str(default)))
-    except ValueError:
+    raw = os.getenv(name)
+    if raw is None:
         return default
+    try:
+        return float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number") from exc
 
 
 def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.getenv(name, str(default)))
-    except ValueError:
+    raw = os.getenv(name)
+    if raw is None:
         return default
+    try:
+        return int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
 
 
 def _env_time(name: str, default: str) -> time:
@@ -33,9 +40,8 @@ def _env_time(name: str, default: str) -> time:
     try:
         hours, minutes = (int(part) for part in raw.split(":", maxsplit=1))
         return time(hours, minutes)
-    except (TypeError, ValueError):
-        fallback_hours, fallback_minutes = (int(part) for part in default.split(":"))
-        return time(fallback_hours, fallback_minutes)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must use HH:MM in 24-hour time") from exc
 
 
 def _database_url() -> str:
@@ -95,6 +101,18 @@ class Settings:
     def __post_init__(self) -> None:
         if self.study_level not in {"CET4", "CET6"}:
             raise ValueError("STUDY_LEVEL must be CET4 or CET6")
+        local_provider = self.llm_provider.strip().lower().replace("_", "-")
+        if local_provider not in {"ollama", "openai-compatible"}:
+            raise ValueError("LLM_PROVIDER is unsupported")
+        embedding_provider = self.embedding_provider.strip().lower()
+        if embedding_provider != "ollama":
+            raise ValueError("EMBEDDING_PROVIDER is unsupported")
+        _validate_model_endpoint("LLM", self.llm_model, self.llm_base_url)
+        _validate_model_endpoint(
+            "EMBEDDING",
+            self.embedding_model,
+            self.embedding_base_url,
+        )
         advanced_provider = self.advanced_llm_provider.lower().replace("_", "-")
         if advanced_provider not in {"", "ollama", "openai-compatible"}:
             raise ValueError("ADVANCED_LLM_PROVIDER is unsupported")
@@ -104,6 +122,12 @@ class Settings:
             raise ValueError(
                 "ADVANCED_LLM_MODEL and ADVANCED_LLM_BASE_URL are required when "
                 "ADVANCED_LLM_PROVIDER is enabled"
+            )
+        if advanced_provider:
+            _validate_model_endpoint(
+                "ADVANCED_LLM",
+                self.advanced_llm_model,
+                self.advanced_llm_base_url,
             )
         if not math.isfinite(self.confusion_threshold) or not (
             0.0 <= self.confusion_threshold <= 1.0
@@ -134,6 +158,14 @@ class Settings:
             )
         if self.reminder_cooldown_minutes <= 0:
             raise ValueError("REMINDER_COOLDOWN_MINUTES must be greater than 0")
+
+
+def _validate_model_endpoint(prefix: str, model: str, base_url: str) -> None:
+    if not model.strip():
+        raise ValueError(f"{prefix}_MODEL must not be empty")
+    parsed = urlsplit(base_url.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError(f"{prefix}_BASE_URL must be an absolute HTTP(S) URL")
 
 
 settings = Settings()

@@ -73,11 +73,11 @@ class DashboardPage(QWidget):
     def refresh(self) -> None:
         try:
             stats = self.service.dashboard_stats()
-        except Exception as exc:
+        except Exception:
             logger.exception("Could not load dashboard statistics")
             for card in (self.due, self.completed, self.accuracy, self.streak):
                 card.value.setText("—")
-            self.wrong_words.setText(f"暂时无法读取学习数据：{exc}")
+            self.wrong_words.setText("暂时无法读取学习数据，请稍后重试。")
             return
         self.due.value.setText(str(stats.due_count))
         self.completed.value.setText(str(stats.today_completed))

@@ -20,6 +20,7 @@ from app.services.analysis_service import AnalysisService, ConfusionCluster
 from app.ui.widgets.async_worker import AsyncWorker
 
 logger = logging.getLogger(__name__)
+_DEFAULT_STATUS = "关系由学习记录与确定性算法生成。"
 
 
 class AnalysisPage(QWidget):
@@ -43,7 +44,7 @@ class AnalysisPage(QWidget):
         heading.addStretch()
         heading.addWidget(self.rebuild_button)
         layout.addLayout(heading)
-        self.status = QLabel("关系由学习记录与确定性算法生成。")
+        self.status = QLabel(_DEFAULT_STATUS)
         self.status.setStyleSheet("color: #64748b;")
         layout.addWidget(self.status)
 
@@ -71,27 +72,30 @@ class AnalysisPage(QWidget):
         layout.addWidget(self.ai_output)
         self.refresh()
 
-    def refresh(self) -> None:
+    def refresh(self) -> bool:
         self.list_widget.clear()
+        self.ai_output.clear()
         try:
             self.clusters = self.service.get_clusters()
-        except Exception as exc:
+        except Exception:
             logger.exception("Could not load confusion clusters")
             self.clusters = []
-            self.status.setText(f"暂时无法读取错词关系：{exc}")
+            self.status.setText("暂时无法读取错词关系，请稍后重试。")
             self.ai_button.setEnabled(False)
-            return
+            return False
+        self.status.setText(_DEFAULT_STATUS)
         if not self.clusters:
             self.list_widget.addItem(
                 "还没有足够的错词数据。可先运行 demo 数据脚本体验。"
             )
             self.ai_button.setEnabled(False)
-            return
+            return True
         for cluster in self.clusters:
             self.list_widget.addItem(
                 f"Cluster #{cluster.cluster_number}    {'  ↔  '.join(cluster.words)}\n"
                 f"相关度 {cluster.average_score:.2f} · {cluster.relation_type.value}"
             )
+        return True
 
     def rebuild(self) -> None:
         if self.worker is not None:
@@ -106,11 +110,11 @@ class AnalysisPage(QWidget):
         self.worker.start()
 
     def _rebuild_finished(self, result) -> None:
-        self.status.setText(
-            f"候选 {result.candidate_count} · 关系 {result.edge_count} · "
-            f"词簇 {result.cluster_count}"
-        )
-        self.refresh()
+        if self.refresh():
+            self.status.setText(
+                f"候选 {result.candidate_count} · 关系 {result.edge_count} · "
+                f"词簇 {result.cluster_count}"
+            )
 
     def _selection_changed(self, row: int) -> None:
         self.ai_button.setEnabled(0 <= row < len(self.clusters) and self.worker is None)

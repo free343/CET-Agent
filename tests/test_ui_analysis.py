@@ -36,3 +36,17 @@ def test_selected_cluster_has_explicit_readable_style() -> None:
     assert "QListWidget::item:selected" in page.list_widget.styleSheet()
     assert "color: #1d4ed8" in page.list_widget.styleSheet()
     page.deleteLater()
+
+
+def test_refresh_clears_stale_analysis_and_error_status() -> None:
+    app = QApplication.instance() or QApplication([])
+    page = AnalysisPage(FakeAnalysisService(), object())
+    page.ai_output.setPlainText("stale model output")
+    page.status.setText("previous failure")
+
+    assert page.refresh() is True
+    app.processEvents()
+
+    assert page.ai_output.toPlainText() == ""
+    assert page.status.text() == "关系由学习记录与确定性算法生成。"
+    page.deleteLater()

@@ -79,6 +79,37 @@ _OUT_OF_SCOPE_MARKERS = (
     "legal advice",
 )
 
+_LANGUAGE_SCOPE_OVERRIDE_MARKERS = (
+    "翻译",
+    "单词",
+    "词汇",
+    "词义",
+    "短语",
+    "什么意思",
+    "区别",
+    "辨析",
+    "语法",
+    "例句",
+    "搭配",
+    "用法",
+    "发音",
+    "音标",
+    "同义词",
+    "反义词",
+    "meaning",
+    "mean",
+    "difference",
+    "grammar",
+    "example",
+    "usage",
+    "pronounce",
+    "pronunciation",
+    "phonetic",
+    "synonym",
+    "antonym",
+    "translate",
+)
+
 _ADVANCED_TASK_MARKERS = (
     "整篇",
     "逐句",
@@ -130,9 +161,13 @@ class QueryRoutingPolicy:
         english_tokens = _ENGLISH_TOKEN.findall(normalized)
         has_learning_context = _contains_any(normalized, _LEARNING_MARKERS)
         has_explicit_off_topic = _contains_any(normalized, _OUT_OF_SCOPE_MARKERS)
+        has_language_scope_override = _contains_any(
+            normalized,
+            _LANGUAGE_SCOPE_OVERRIDE_MARKERS,
+        )
         looks_like_headword_or_phrase = 1 <= len(english_tokens) <= 3
 
-        if has_explicit_off_topic and not has_learning_context:
+        if has_explicit_off_topic and not has_language_scope_override:
             return QueryAssessment(
                 QueryRoute.REFUSE,
                 0.98,
@@ -175,4 +210,10 @@ def _normalize(value: str) -> str:
 
 
 def _contains_any(value: str, markers: tuple[str, ...]) -> bool:
-    return any(marker in value for marker in markers)
+    return any(_contains_marker(value, marker) for marker in markers)
+
+
+def _contains_marker(value: str, marker: str) -> bool:
+    if marker.isascii():
+        return re.search(rf"(?<![a-z]){re.escape(marker)}(?![a-z])", value) is not None
+    return marker in value

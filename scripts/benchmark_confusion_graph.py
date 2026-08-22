@@ -24,6 +24,7 @@ from app.utils.datetime_utils import UTC
 BENCHMARK_NOW = datetime(2026, 8, 22, 12, tzinfo=UTC)
 DEFAULT_CANDIDATES = 100
 DEFAULT_ITERATIONS = 3
+DEFAULT_ERROR_HISTORY_SIZE = 100
 
 
 class IdenticalEmbeddingProvider(EmbeddingProvider):
@@ -51,10 +52,13 @@ def populate_dense_case(
     database: Database,
     *,
     candidate_count: int = DEFAULT_CANDIDATES,
+    error_history_size: int = DEFAULT_ERROR_HISTORY_SIZE,
     now: datetime = BENCHMARK_NOW,
 ) -> None:
     if not 2 <= candidate_count <= 100:
         raise ValueError("candidate_count must be between 2 and 100")
+    if error_history_size < 2:
+        raise ValueError("error_history_size must be at least 2")
     with database.session() as session:
         for index in range(candidate_count):
             word = Word(
@@ -66,8 +70,13 @@ def populate_dense_case(
             word.learning_state = LearningState(next_review_at=now)
             session.add(word)
             session.flush()
-            for days_ago in (1, 2):
-                session.add(_error_log(word.id, now - timedelta(days=days_ago)))
+            for occurrence in range(error_history_size):
+                session.add(
+                    _error_log(
+                        word.id,
+                        now - timedelta(minutes=occurrence * 10),
+                    )
+                )
 
 
 def run_benchmark(

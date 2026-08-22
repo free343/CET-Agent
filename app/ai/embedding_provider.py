@@ -50,7 +50,10 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
                 trust_env=False,
             )
             response.raise_for_status()
-            vectors = response.json().get("embeddings", [])
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise TypeError("Embedding endpoint returned a non-object payload")
+            vectors = payload.get("embeddings", [])
             if len(vectors) != len(texts):
                 raise ValueError("Embedding response length does not match input")
             return [[float(value) for value in vector] for vector in vectors]

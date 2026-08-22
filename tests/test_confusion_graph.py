@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.db.models import RelationType
 from app.domain.confusion_graph import (
     GraphEdge,
     RelationWeights,
@@ -32,3 +33,20 @@ def test_relation_total_uses_configured_formula() -> None:
 def test_relation_weights_reject_negative_values_even_when_sum_is_one() -> None:
     with pytest.raises(ValueError):
         RelationWeights(semantic=-1.0, spelling=1.0, coerror=1.0, temporal=0.0)
+
+
+def test_relation_type_uses_weighted_contribution() -> None:
+    scores = score_relation(
+        semantic=0.6,
+        spelling=0.9,
+        coerror=0.0,
+        temporal=0.0,
+        weights=RelationWeights(
+            semantic=0.9,
+            spelling=0.1,
+            coerror=0.0,
+            temporal=0.0,
+        ),
+    )
+
+    assert scores.relation_type is RelationType.SEMANTIC

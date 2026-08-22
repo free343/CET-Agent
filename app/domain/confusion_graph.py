@@ -51,13 +51,19 @@ def infer_relation_type(
     spelling: float,
     coerror: float,
     temporal: float,
+    weights: RelationWeights | None = None,
 ) -> RelationType:
+    selected_weights = weights or RelationWeights()
     values = {
-        RelationType.SEMANTIC: semantic,
-        RelationType.SPELLING: spelling,
-        RelationType.CO_ERROR: coerror,
-        RelationType.TEMPORAL: temporal,
+        RelationType.SEMANTIC: selected_weights.semantic * semantic,
+        RelationType.SPELLING: selected_weights.spelling * spelling,
+        RelationType.CO_ERROR: selected_weights.coerror * coerror,
+        RelationType.TEMPORAL: selected_weights.temporal * temporal,
     }
+    total = sum(values.values())
+    if total <= 0.0:
+        return RelationType.MIXED
+    values = {relation: value / total for relation, value in values.items()}
     ranked = sorted(values.items(), key=lambda item: item[1], reverse=True)
     if ranked[0][1] < 0.35:
         return RelationType.MIXED
@@ -91,7 +97,13 @@ def score_relation(
         coerror=coerror,
         temporal=temporal,
         total=round(_bounded(total), 12),
-        relation_type=infer_relation_type(semantic, spelling, coerror, temporal),
+        relation_type=infer_relation_type(
+            semantic,
+            spelling,
+            coerror,
+            temporal,
+            selected_weights,
+        ),
     )
 
 

@@ -76,6 +76,50 @@ def test_seed_applies_initial_release_delay(database, tmp_path, monkeypatch) -> 
     assert states["beta"] == NOW.replace(day=29)
 
 
+def test_seed_updates_metadata_without_resetting_learning_state(
+    database, tmp_path, monkeypatch
+) -> None:
+    original = tmp_path / "original.csv"
+    original.write_text(
+        "word,phonetic,meaning,example,level,frequency\n"
+        "adapt,/old/,旧释义,old example,CET6,1\n",
+        encoding="utf-8",
+    )
+    corrected = tmp_path / "corrected.csv"
+    corrected.write_text(
+        "word,phonetic,meaning,example,level,frequency\n"
+        "adapt,/new/,新释义,new example,CET4,99\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.db.seed.utc_now", lambda: NOW)
+
+    with database.session() as session:
+        assert seed_words(session, original) == 1
+        word = session.scalar(select(Word).where(Word.word == "adapt"))
+        assert word is not None and word.learning_state is not None
+        original_id = word.id
+        word.learning_state.review_count = 5
+        word.learning_state.stability = 12.0
+        word.learning_state.next_review_at = NOW.replace(day=30)
+
+    with database.session() as session:
+        assert seed_words(session, corrected) == 0
+    with database.session() as session:
+        word = session.scalar(select(Word).where(Word.word == "adapt"))
+        assert word is not None and word.learning_state is not None
+        assert word.id == original_id
+        assert (
+            word.phonetic,
+            word.meaning,
+            word.example,
+            word.level.value,
+            word.frequency,
+        ) == ("/new/", "新释义", "new example", "CET4", 99)
+        assert word.learning_state.review_count == 5
+        assert word.learning_state.stability == 12.0
+        assert word.learning_state.next_review_at == NOW.replace(day=30)
+
+
 @pytest.mark.parametrize(
     "contents",
     (

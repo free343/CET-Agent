@@ -90,6 +90,7 @@ class AnalysisService:
                 .join(ReviewLog, ReviewLog.word_id == Word.id)
                 .where(
                     ReviewLog.reviewed_at >= cutoff,
+                    ReviewLog.reviewed_at <= now,
                     ReviewLog.is_correct.is_(False),
                 )
                 .group_by(Word.id)
@@ -107,6 +108,7 @@ class AnalysisService:
                 select(ReviewLog.word_id, ReviewLog.reviewed_at).where(
                     ReviewLog.word_id.in_(candidate_ids),
                     ReviewLog.reviewed_at >= cutoff,
+                    ReviewLog.reviewed_at <= now,
                     ReviewLog.is_correct.is_(False),
                 )
             ):
@@ -257,6 +259,7 @@ class AnalysisService:
                         ReviewLog.word_id.in_(word_ids),
                         ReviewLog.is_correct.is_(False),
                         ReviewLog.reviewed_at >= cutoff,
+                        ReviewLog.reviewed_at <= checked_at,
                     )
                     .group_by(ReviewLog.word_id)
                 )

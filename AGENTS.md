@@ -71,11 +71,11 @@ Local Ollama:
 - `app/bootstrap.py` configures logging, upgrades the database schema, validates and idempotently imports both bundled vocabulary files, and creates missing LearningState rows.
 - `app/db/migrations.py` owns the explicit sequential schema registry, currently version 2. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application.
 - `app/config.py` loads `.env`, resolves relative SQLite paths from the project root, and owns all model, graph, reminder, and logging configuration.
-- Unsafe graph/reminder configuration is rejected at startup: thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
+- Malformed environment values and unsafe model/graph/reminder configuration are rejected at startup: model endpoints must be absolute HTTP(S) URLs, thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
 - `app/db/models.py` defines Word, LearningState, ReviewLog, ConfusionEdge, AIAnalysis, EmbeddingCache, and ReminderRuntimeState.
 - UTC-aware values are converted through a custom SQLAlchemy type so stored SQLite timestamps are consistent and loaded values regain UTC awareness.
 - SQLite review writes acquire `BEGIN IMMEDIATE` before reading LearningState because SQLite ignores `SELECT ... FOR UPDATE`; competing application windows therefore cannot both overwrite the same prior state.
-- `app/db/seed.py` validates an entire CSV before mutation, including its required columns, unique single-word English headwords, CET4/CET6 levels, nonempty meanings, and bounded numeric fields. Word seeding is idempotent and supports a per-row initial release delay.
+- `app/db/seed.py` validates an entire CSV before mutation, including its required columns, unique single-word English headwords, CET4/CET6 levels, nonempty meanings, and bounded numeric fields. Word seeding is idempotent, supports a per-row initial release delay, and applies corrected bundled metadata to existing words without replacing their LearningState or review history.
 - `scripts/build_open_vocabulary.py` reproducibly builds the redistributable CET artifact from hash-pinned ECDICT and FreeDict sources. Only words with an ECDICT CET tag/phonetic/Chinese meaning and an independent FreeDict bilingual/pronunciation entry survive. The generated CSV hash, source hashes, versions, licenses, transformation, and counts are committed alongside the artifact.
 
 ### Review and learning loop
@@ -96,14 +96,15 @@ Local Ollama:
 
 ### Confusion analysis
 
-- `app/domain/similarity.py` implements Levenshtein distance, bounded spelling similarity, clipped 0–1 cosine similarity, one-to-one co-error matching, and temporal exponential decay.
+- `app/domain/similarity.py` implements Levenshtein distance, bounded spelling similarity, clipped 0–1 cosine similarity, one-to-one co-error matching, and temporal exponential decay. Nearest temporal matches use sorted binary search instead of a quadratic history scan.
 - `app/services/analysis_service.py` selects words with at least two errors in the configured recent window, limits candidates to 100, obtains optional embeddings, scores candidate pairs, replaces graph edges, and exposes clusters.
 - The default relation formula is `0.30 semantic + 0.25 spelling + 0.30 co-error + 0.15 temporal`, threshold `0.65`.
-- Candidate selection and cluster error counts use the same 30-day window.
+- Candidate selection and cluster error counts use the same closed 30-day window; future-dated ReviewLog rows are excluded.
+- Relation labels are inferred from normalized weighted contributions, so custom weights cannot produce a label that contradicts the score formula.
 - `app/domain/clustering.py` uses connected components; clusters above eight words pass only their highest-weight core words to the LLM.
 - The Analysis list defines an explicit readable selected-item style; selection no longer renders dark/white text invisibly against the platform theme.
 - `scripts/create_demo_data.py` idempotently creates correlated errors for three groups. Latest deterministic demo result: 7 candidates, 5 edges, 3 clusters (`adapt/adopt/adept`, `economic/economical`, `complement/compliment`).
-- `scripts/benchmark_confusion_graph.py` creates an ephemeral worst-case dense graph with 100 candidates and 4,950 persisted edges, asserts the exact result, runs three timed rebuilds, and fails if the median exceeds a configurable five-second budget. It never touches the runtime database.
+- `scripts/benchmark_confusion_graph.py` creates an ephemeral dense graph with 100 candidates, 100 synchronized errors per candidate, and 4,950 persisted edges; it asserts the exact result, runs three timed rebuilds, and fails if the median exceeds a configurable five-second budget. It never touches the runtime database.
 
 ### LLM and Embedding integration
 
@@ -111,6 +112,7 @@ Local Ollama:
 - `app/ai/ollama_provider.py` uses Ollama `/api/chat`.
 - `app/ai/openai_compatible_provider.py` supports OpenAI-compatible chat and normalizes `/v1` without duplication.
 - `app/ai/embedding_provider.py` uses Ollama `/api/embed` behind an independent Embedding Provider and SQLite cache.
+- Chat and Embedding adapters reject non-object JSON responses through their project-defined unavailable exceptions, preserving service-level degradation instead of leaking raw `AttributeError` failures.
 - Ollama chat and embedding calls set `trust_env=False`, preventing Windows/HTTP proxy settings from capturing localhost traffic.
 - The Embedding adapter allows a 60-second cold start; the observed first load was 20.159 seconds, so the old 20-second limit was too brittle.
 - Chat and embeddings have separate provider, base URL, and model settings.
@@ -125,7 +127,7 @@ Local Ollama:
 - Structured cluster output must explain every algorithm-selected input word exactly once; schema-valid output containing missing, duplicate, or unrelated words is rejected and retried.
 - AI cache identity includes prompt version, provider type, model, base URL, cluster words, relation type, and major statistics.
 - If another window stores the same AI analysis after the initial cache read, the losing writer reloads the winning validated row and returns it as a cache hit.
-- `app/domain/query_routing.py` owns an injectable deterministic policy that normalizes input and returns an explainable `LOCAL`, `CONFIRM_ADVANCED`, or `REFUSE` decision with bounded confidence. It distinguishes language questions about an otherwise off-topic noun from actual real-time/professional requests, routes long or complex language tasks through explicit user choice, and never asks an LLM to select a model.
+- `app/domain/query_routing.py` owns an injectable deterministic policy that normalizes input and returns an explainable `LOCAL`, `CONFIRM_ADVANCED`, or `REFUSE` decision with bounded confidence. English markers use word boundaries, and an off-topic marker is overridden only by explicit metalinguistic intent such as asking for a meaning or translation. Long or complex language tasks require explicit user choice; an LLM never selects the model.
 - The local assistant rejects empty, general-chat, real-time, and professional out-of-scope requests without calling a model. The Chat UI consumes the structured route instead of comparing a magic confidence threshold.
 
 ### Reminder and desktop lifecycle
@@ -144,6 +146,8 @@ Local Ollama:
 
 - Model unavailable, embedding unavailable, invalid JSON, empty data, no clusters, and SQLite busy conditions have recoverable paths.
 - Failed review-queue reloads clear and disable the stale card; dashboard and analysis refresh failures display safe state instead of leaking an exception through a Qt callback.
+- Analysis refresh clears detached AI output and resets stale error status before presenting a new cluster snapshot.
+- Unexpected UI and startup exceptions are logged with full detail but converted to stable generic user messages; filesystem, SQL, and transport details are not rendered.
 - While chat is waiting for a low-confidence routing choice, its pending question and input controls are locked so a second send cannot silently replace the first question.
 - Model/network work runs in `AsyncWorker` QThreads, not on the UI thread.
 - Detailed failures go to logs; user-facing messages remain concise.
@@ -162,14 +166,17 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 105 passed in 2.13s | 2026-08-22 |
+| Full pytest suite | 127 passed in 3.15s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 76 files already formatted | 2026-08-22 |
+| Ruff format gate | 77 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 53 source files | 2026-08-22 |
-| Deterministic chat routing | 15 new/updated routing and integration cases cover local vocabulary/grammar, Unicode normalization, advanced confirmation, empty/general/off-topic refusal, scope override, and zero-call refusal | 2026-08-22 |
+| Deterministic chat routing | regression cases cover local vocabulary/grammar, Unicode normalization, advanced confirmation, empty/general/off-topic refusal, English word boundaries, guarded scope override, and zero-call refusal | 2026-08-22 |
+| Provider response-shape degradation | non-object and malformed nested OpenAI-compatible chat JSON plus non-object Ollama Embedding JSON normalized to project unavailable exceptions | 2026-08-22 |
+| Current-window confusion analysis | future-only repeat errors produced 0 candidates, 0 edges, and 0 clusters; current cluster counts remain window-aligned | 2026-08-22 |
+| Bundled metadata upgrade | corrected phonetic/meaning/example/level/frequency applied to an existing word while its ID, review count, stability, and due time remained unchanged | 2026-08-22 |
 | Advanced Provider bootstrap | disabled/default, independent OpenAI-compatible construction, invalid/incomplete configuration rejection, explicit advanced dispatch, and API-key repr redaction passed | 2026-08-22 |
 | Live advanced-provider dispatch | explicit advanced choice returned a non-degraded 283-character response from independent `qwen2.5:3b` while the local Provider pointed to an unreachable endpoint | 2026-08-22 |
-| 100-candidate graph performance | dense 4,950-edge rebuild runs: 0.208s, 0.223s, 0.208s; median 0.208s; exact one-cluster invariant passed | 2026-08-22 |
+| 100-candidate graph performance | 100 errors per candidate and all 4,950 edges: 0.971s, 0.932s, 0.936s; median 0.936s; exact one-cluster invariant passed | 2026-08-22 |
 | Locked dependency install | clean Python 3.13 virtual environment installed `requirements-dev.lock`; `pip check` passed; Python 3.11/win_amd64 wheel-resolution dry run passed | 2026-08-22 |
 | GitHub Actions workflow | Windows Python 3.11/3.13 matrix defined with current official v7 checkout/setup actions; local-equivalent full gate passed; hosted run pending remote configuration | 2026-08-22 |
 | Schema migration matrix | 5 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS state mapping, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
@@ -185,7 +192,7 @@ Update this section after every material change. Never report a feature as verif
 | Ollama embedding through cached provider | 2 vectors, dimension 768; cold 20.159s; cache rows 0→2→2 | 2026-08-22 |
 | Semantic graph rebuild | 7 candidates, 5 edges, 3 clusters; `embedding_available=true` | 2026-08-22 |
 | Structured cluster JSON and AI cache hit | first live result `cached=false`; second `cached=true`; Pydantic passed | 2026-08-22 |
-| Latest warm full local-AI validation | exit code 0; chat 2.647s; embedding cache rows remained 7→7→7 | 2026-08-22 |
+| Latest warm full local-AI validation | exit code 0; chat 2.446s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; updated weighted-relation analysis cached false→true | 2026-08-22 |
 | Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; native toast/tray timing remains | 2026-08-22 |
 
 Baseline commands:
@@ -213,6 +220,10 @@ python main.py
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
 - Chat is intentionally single-turn and has no bounded conversation persistence.
+- Both CET levels receive their initial release timestamps on first import. Changing `STUDY_LEVEL` long after installation can therefore expose a large already-due backlog in the newly selected level; level activation needs an explicit release-rebase policy.
+- Dashboard, due-queue, and reminder reads still run synchronously on the GUI thread and can visibly pause if another process holds the SQLite database lock.
+- Multiple application instances serialize review writes but do not coordinate active-review reminder suppression, so duplicate cross-process notifications remain possible.
+- Structured AI fields and the visible in-session chat transcript do not yet have explicit size/count budgets.
 - Complete the remaining native Windows validation for tray/toast behavior, real 30-minute snooze timing, and closing during an uncached active AI request.
 
 ### P3: delivery engineering
@@ -226,7 +237,7 @@ python main.py
 1. Algorithm first: structured deterministic evidence is produced before any LLM call.
 2. Provider separation: LLM and Embedding endpoints are independently configurable because real deployments commonly use different servers/models.
 3. Cache namespacing: endpoint identity is part of cache identity so switching providers cannot silently reuse stale model output.
-4. Window consistency: candidate selection and displayed cluster error counts refer to the same configured recent period.
+4. Window consistency: candidate selection and displayed cluster error counts refer to the same configured recent period and never accept events after the evaluation time.
 5. Negative cosine policy: negative cosine similarity maps to 0 rather than being shifted upward.
 6. Bounded graph cost: only recent repeat-error candidates are compared, capped at 100.
 7. Graceful degradation: semantic score may become 0 if embedding is offline; deterministic review remains available if all AI services are offline.
@@ -241,18 +252,21 @@ python main.py
 16. Dual-source vocabulary gate: ECDICT supplies display fields and CET metadata, while FreeDict independently confirms an open bilingual entry and pronunciation. A source mismatch removes the row instead of guessing.
 17. Bounded initial workload: new open-data words are frequency-sorted and released independently per selected CET level at 20 per day. Level selection is a deterministic query filter, not an LLM decision.
 18. Reproducible quality gate: direct dependency ranges remain human-maintainable while pip-tools lock files pin actual installs. Windows Python 3.11 and 3.13 are the CI compatibility bounds; lint, formatting, type checks, tests, dependency integrity, and an offscreen startup must all pass.
-19. Explainable model routing: a pure domain policy combines normalized learning-intent, precise out-of-scope phrases, text size, and task complexity into a structured route. Scope refusal runs before complexity escalation, explicit language-learning context can override an ambiguous noun, and the UI never infers a route from a magic numeric threshold.
+19. Explainable model routing: a pure domain policy combines normalized learning intent, word-boundary-aware English markers, precise out-of-scope phrases, text size, and task complexity into a structured route. Only explicit metalinguistic intent can override an ambiguous off-topic noun, and the UI never infers a route from a magic numeric threshold.
 20. Explicit advanced-model opt-in: advanced chat is a separately configured Provider, disabled by default, and invoked only after the deterministic policy asks and the user chooses it. Its credentials and endpoint identity never replace or leak through the local Provider configuration.
-21. Worst-case graph budget: scale validation uses identical deterministic embeddings and synchronized errors so all 4,950 possible edges survive, covering both O(n²) scoring and maximum SQLite persistence cost. The repeatable script uses an ephemeral database and a conservative five-second median guard.
-15. Fail-fast configuration: graph and reminder settings are validated before use; invalid bounds, non-finite weights, unsafe candidate limits, and invalid reminder windows are not silently accepted.
-16. Monotonic review history: a review cannot be committed at or before that word's previous review timestamp.
-17. Cache self-repair: malformed Embedding cache rows are discarded and regenerated, and network/model waits never occur inside an open cache transaction.
-18. Evidence alignment: Pydantic shape validation is necessary but not sufficient; structured AI explanations must also match the exact algorithm-selected word multiset.
-19. Current-time statistics: future-dated events are excluded from dashboard calculations rather than being trusted as completed learning behavior.
-20. Review-session ownership: entering an active review dismisses the in-app reminder immediately; reminder content must not remain visible with a stale due count while the user is reviewing.
-21. SQLite write serialization: state-dependent review writes reserve the SQLite writer before reading; `with_for_update()` alone is not treated as protection on SQLite.
-22. Concurrent cache convergence: Embedding uses database upsert and AI analysis resolves a unique-key race by returning the already committed, locally revalidated winner.
-23. Official deterministic FSRS: scheduling delegates to pinned `py-fsrs` 6.3.2, with fuzzing disabled and reference-vector tests. The adapter keeps the application's stable Rating/result interface while schema v2 persists the library's card phase and step.
+21. Dense graph budget: scale validation uses identical deterministic embeddings and 100 synchronized errors per candidate so all 4,950 possible edges survive, covering pair scoring, practical history density, and maximum SQLite persistence cost. The repeatable script uses an ephemeral database and a conservative five-second median guard.
+22. Fail-fast configuration: malformed environment values, model endpoints, graph settings, and reminder settings are rejected before use; invalid inputs are not silently replaced with defaults.
+23. Monotonic review history: a review cannot be committed at or before that word's previous review timestamp.
+24. Cache self-repair: malformed Embedding cache rows are discarded and regenerated, and network/model waits never occur inside an open cache transaction.
+25. Evidence alignment: Pydantic shape validation is necessary but not sufficient; structured AI explanations must also match the exact algorithm-selected word multiset.
+26. Current-time statistics: future-dated events are excluded from dashboard and confusion-analysis calculations rather than being trusted as learning behavior.
+27. Review-session ownership: entering an active review dismisses the in-app reminder immediately; reminder content must not remain visible with a stale due count while the user is reviewing.
+28. SQLite write serialization: state-dependent review writes reserve the SQLite writer before reading; `with_for_update()` alone is not treated as protection on SQLite.
+29. Concurrent cache convergence: Embedding uses database upsert and AI analysis resolves a unique-key race by returning the already committed, locally revalidated winner.
+30. Official deterministic FSRS: scheduling delegates to pinned `py-fsrs` 6.3.2, with fuzzing disabled and reference-vector tests. The adapter keeps the application's stable Rating/result interface while schema v2 persists the library's card phase and step.
+31. Bundled metadata ownership: validated bundled word metadata may be corrected on later startup, but importing vocabulary must never replace a user's LearningState, scheduling state, or ReviewLog history.
+32. Provider response shape: a syntactically valid but structurally invalid HTTP response is an unavailable-provider condition and must cross the adapter boundary as the project-defined safe exception.
+33. Safe presentation boundary: unexpected exception detail belongs in rotating logs; user-visible UI receives stable action-oriented text without filesystem, SQL, or transport internals.
 
 ## 8. Development constraints
 

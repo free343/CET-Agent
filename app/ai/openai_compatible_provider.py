@@ -68,11 +68,20 @@ class OpenAICompatibleProvider(LLMProvider):
             )
             response.raise_for_status()
             payload = response.json()
+            if not isinstance(payload, dict):
+                raise TypeError("Compatible endpoint returned a non-object payload")
             content = safe_response_text(payload, "choices", 0, "message", "content")
             if not content:
-                parsed = (
-                    payload.get("choices", [{}])[0].get("message", {}).get("parsed")
-                )
+                parsed = None
+                choices = payload.get("choices")
+                if (
+                    isinstance(choices, list)
+                    and choices
+                    and isinstance(choices[0], dict)
+                ):
+                    message = choices[0].get("message")
+                    if isinstance(message, dict):
+                        parsed = message.get("parsed")
                 if parsed is not None:
                     content = json.dumps(parsed, ensure_ascii=False)
             if not content:

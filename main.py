@@ -48,10 +48,14 @@ def run(*, smoke_test: bool = False) -> int:
         if smoke_test:
             QTimer.singleShot(250, application.quit)
         return application.exec()
-    except Exception as exc:
+    except Exception:
         logger.exception("Application startup failed")
         if application and not smoke_test:
-            QMessageBox.critical(None, "CET-Agent", f"应用启动失败：{exc}")
+            QMessageBox.critical(
+                None,
+                "CET-Agent",
+                "应用启动失败，请查看日志了解详细信息。",
+            )
         return 1
     finally:
         if database is not None:

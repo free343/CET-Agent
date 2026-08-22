@@ -32,6 +32,9 @@ def test_vocabulary_and_basic_grammar_questions_use_local_model(question) -> Non
         "给我制定一份旅行计划",
         "Please give me a weather forecast",
         "Tell me a joke about robots",
+        "Tell me a meaningful joke",
+        "I forgot my password",
+        "请用英语写代码",
         "",
     ),
 )
