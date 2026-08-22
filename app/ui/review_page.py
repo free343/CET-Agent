@@ -86,7 +86,9 @@ class ReviewPage(QWidget):
         ):
             button = QPushButton(label)
             button.setObjectName("RatingButton")
-            button.clicked.connect(lambda _checked=False, value=rating: self.submit(value))
+            button.clicked.connect(
+                lambda _checked=False, value=rating: self.submit(value)
+            )
             self.rating_buttons[rating] = button
             self.rating_row.addWidget(button)
 

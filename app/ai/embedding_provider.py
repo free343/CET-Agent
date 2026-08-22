@@ -31,7 +31,9 @@ class EmbeddingProvider(ABC):
 
 
 class OllamaEmbeddingProvider(EmbeddingProvider):
-    def __init__(self, base_url: str, model: str, timeout_seconds: float = 60.0) -> None:
+    def __init__(
+        self, base_url: str, model: str, timeout_seconds: float = 60.0
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_seconds = timeout_seconds
@@ -69,7 +71,9 @@ class CachedEmbeddingProvider(EmbeddingProvider):
                 provider.model,
             )
         )
-        identity_hash = hashlib.sha256(provider_identity.encode("utf-8")).hexdigest()[:16]
+        identity_hash = hashlib.sha256(provider_identity.encode("utf-8")).hexdigest()[
+            :16
+        ]
         self.cache_model_key = f"{provider.model}:{identity_hash}"
 
     @staticmethod

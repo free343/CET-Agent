@@ -15,4 +15,3 @@ def stable_json_hash(value: Any) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-

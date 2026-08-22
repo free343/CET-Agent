@@ -51,7 +51,9 @@ class DashboardPage(QWidget):
         self.completed = MetricCard("今日已完成")
         self.accuracy = MetricCard("近 7 天正确率")
         self.streak = MetricCard("连续学习天数")
-        for index, card in enumerate((self.due, self.completed, self.accuracy, self.streak)):
+        for index, card in enumerate(
+            (self.due, self.completed, self.accuracy, self.streak)
+        ):
             metrics.addWidget(card, 0, index)
         layout.addLayout(metrics)
 

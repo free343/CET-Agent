@@ -64,7 +64,9 @@ class AnalysisPage(QWidget):
         layout.addWidget(self.ai_button)
         self.ai_output = QTextEdit()
         self.ai_output.setReadOnly(True)
-        self.ai_output.setPlaceholderText("选择词簇后，可让本地模型解释易混原因并生成练习。")
+        self.ai_output.setPlaceholderText(
+            "选择词簇后，可让本地模型解释易混原因并生成练习。"
+        )
         self.ai_output.setMinimumHeight(190)
         layout.addWidget(self.ai_output)
         self.refresh()
@@ -80,7 +82,9 @@ class AnalysisPage(QWidget):
             self.ai_button.setEnabled(False)
             return
         if not self.clusters:
-            self.list_widget.addItem("还没有足够的错词数据。可先运行 demo 数据脚本体验。")
+            self.list_widget.addItem(
+                "还没有足够的错词数据。可先运行 demo 数据脚本体验。"
+            )
             self.ai_button.setEnabled(False)
             return
         for cluster in self.clusters:
@@ -143,7 +147,9 @@ class AnalysisPage(QWidget):
             + f"\n答案：{exercise.answer}\n{exercise.explanation}"
         )
         cache_note = "缓存" if result.cached else "新生成"
-        sections.append(f"模型：{result.model} · {cache_note} · 置信度 {result.confidence:.0%}")
+        sections.append(
+            f"模型：{result.model} · {cache_note} · 置信度 {result.confidence:.0%}"
+        )
         self.ai_output.setPlainText("\n\n".join(sections))
 
     def _show_failure(self, message: str) -> None:
@@ -155,7 +161,9 @@ class AnalysisPage(QWidget):
 
     def _set_busy(self, busy: bool) -> None:
         self.rebuild_button.setEnabled(not busy)
-        self.ai_button.setEnabled(not busy and 0 <= self.list_widget.currentRow() < len(self.clusters))
+        self.ai_button.setEnabled(
+            not busy and 0 <= self.list_widget.currentRow() < len(self.clusters)
+        )
 
     def _worker_finished(self) -> None:
         if self.worker is not None:

@@ -34,4 +34,3 @@ def test_embedding_cache_namespace_changes_with_endpoint(database) -> None:
         OllamaEmbeddingProvider("http://second:11434", "same-model"), database
     )
     assert first.cache_model_key != second.cache_model_key
-

@@ -52,4 +52,3 @@ def test_analysis_uses_same_window_for_cluster_error_counts(database) -> None:
     assert result.edge_count == 1
     assert len(clusters) == 1
     assert clusters[0].error_counts == (2, 2)
-

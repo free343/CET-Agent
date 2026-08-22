@@ -46,7 +46,9 @@ class ReviewService:
         self.database = database
         self.study_level = WordLevel(study_level) if study_level is not None else None
 
-    def get_due_words(self, limit: int = 30, now: datetime | None = None) -> list[ReviewItem]:
+    def get_due_words(
+        self, limit: int = 30, now: datetime | None = None
+    ) -> list[ReviewItem]:
         checked_at = ensure_utc(now or utc_now())
         safe_limit = max(1, min(limit, 200))
         with self.database.session() as session:

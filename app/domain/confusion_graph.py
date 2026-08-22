@@ -18,7 +18,9 @@ class RelationWeights:
     def __post_init__(self) -> None:
         weights = (self.semantic, self.spelling, self.coerror, self.temporal)
         if any(not math.isfinite(value) or value < 0.0 for value in weights):
-            raise ValueError("Confusion relation weights must be finite and non-negative")
+            raise ValueError(
+                "Confusion relation weights must be finite and non-negative"
+            )
         if not math.isclose(sum(weights), 1.0, abs_tol=1e-6):
             raise ValueError("Confusion relation weights must sum to 1.0")
 

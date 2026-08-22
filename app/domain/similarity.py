@@ -99,7 +99,9 @@ def temporal_score(
     second = [ensure_utc(value) for value in errors_b]
     tau_seconds = tau.total_seconds()
 
-    def nearest_decay(source: Sequence[datetime], target: Sequence[datetime]) -> list[float]:
+    def nearest_decay(
+        source: Sequence[datetime], target: Sequence[datetime]
+    ) -> list[float]:
         return [
             math.exp(
                 -min(abs((item - candidate).total_seconds()) for candidate in target)

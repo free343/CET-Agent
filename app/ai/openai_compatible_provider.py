@@ -70,13 +70,19 @@ class OpenAICompatibleProvider(LLMProvider):
             payload = response.json()
             content = safe_response_text(payload, "choices", 0, "message", "content")
             if not content:
-                parsed = payload.get("choices", [{}])[0].get("message", {}).get("parsed")
+                parsed = (
+                    payload.get("choices", [{}])[0].get("message", {}).get("parsed")
+                )
                 if parsed is not None:
                     content = json.dumps(parsed, ensure_ascii=False)
             if not content:
                 raise ValueError("Compatible endpoint returned empty assistant content")
-            logger.info("LLM call completed provider=openai-compatible model=%s", self.model)
+            logger.info(
+                "LLM call completed provider=openai-compatible model=%s", self.model
+            )
             return content
         except (httpx.HTTPError, ValueError, TypeError, KeyError, IndexError) as exc:
-            logger.warning("Compatible LLM call failed model=%s error=%s", self.model, exc)
+            logger.warning(
+                "Compatible LLM call failed model=%s error=%s", self.model, exc
+            )
             raise LLMUnavailableError("配置的模型服务暂不可用。") from exc

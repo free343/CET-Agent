@@ -24,8 +24,7 @@ def _create_initial_schema(connection: Connection) -> None:
 
 def _add_fsrs_card_state(connection: Connection) -> None:
     columns = {
-        column["name"]
-        for column in inspect(connection).get_columns("learning_states")
+        column["name"] for column in inspect(connection).get_columns("learning_states")
     }
     if "fsrs_state" not in columns:
         connection.exec_driver_sql(
@@ -151,10 +150,7 @@ def _ensure_version_table(connection: Connection) -> None:
     ).all()
     if not rows:
         connection.execute(
-            text(
-                f"INSERT INTO {SCHEMA_VERSION_TABLE} (id, version) "
-                "VALUES (1, 0)"
-            )
+            text(f"INSERT INTO {SCHEMA_VERSION_TABLE} (id, version) VALUES (1, 0)")
         )
         return
     if len(rows) != 1 or rows[0].id != 1:
@@ -172,8 +168,6 @@ def _read_version(connection: Connection) -> int:
 
 def _write_version(connection: Connection, version: int) -> None:
     connection.execute(
-        text(
-            f"UPDATE {SCHEMA_VERSION_TABLE} SET version = :version WHERE id = 1"
-        ),
+        text(f"UPDATE {SCHEMA_VERSION_TABLE} SET version = :version WHERE id = 1"),
         {"version": version},
     )

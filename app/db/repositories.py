@@ -43,7 +43,11 @@ class LearningStateRepository:
         self.session = session
 
     def get_for_update(self, word_id: int) -> LearningState | None:
-        statement = select(LearningState).where(LearningState.word_id == word_id).with_for_update()
+        statement = (
+            select(LearningState)
+            .where(LearningState.word_id == word_id)
+            .with_for_update()
+        )
         return self.session.scalar(statement)
 
     def due_query(

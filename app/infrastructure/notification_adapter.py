@@ -17,7 +17,9 @@ class NotificationAdapter(ABC):
 class QtNotificationAdapter(NotificationAdapter):
     def __init__(self, parent: QWidget, on_activated: Callable[[], None]) -> None:
         self.tray = QSystemTrayIcon(parent)
-        icon = QApplication.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
+        icon = QApplication.style().standardIcon(
+            QStyle.StandardPixmap.SP_MessageBoxInformation
+        )
         self.tray.setIcon(icon)
         self.tray.setToolTip("CET-Agent")
         self.tray.messageClicked.connect(on_activated)
@@ -36,4 +38,3 @@ class QtNotificationAdapter(NotificationAdapter):
 
     def close(self) -> None:
         self.tray.hide()
-

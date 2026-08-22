@@ -34,4 +34,3 @@ def word_id(database: Database) -> int:
         session.add(word)
         session.flush()
         return word.id
-

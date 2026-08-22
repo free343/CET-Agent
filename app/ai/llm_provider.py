@@ -34,4 +34,3 @@ def safe_response_text(payload: dict[str, Any], *path: str | int) -> str:
     except (KeyError, IndexError, TypeError):
         return ""
     return current if isinstance(current, str) else ""
-

@@ -16,4 +16,3 @@ QPushButton#RatingButton { background: white; border: 1px solid #cbd5e1; border-
 QPushButton#RatingButton:hover { border-color: #2563eb; color: #2563eb; }
 QLineEdit, QTextEdit { background: white; border: 1px solid #d7dce5; border-radius: 8px; padding: 9px; }
 """
-

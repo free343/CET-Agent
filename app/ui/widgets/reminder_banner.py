@@ -34,4 +34,3 @@ class ReminderBanner(QFrame):
             f"你有 {due_count} 个单词进入复习窗口 · 预计 {estimated_minutes} 分钟"
         )
         self.show()
-

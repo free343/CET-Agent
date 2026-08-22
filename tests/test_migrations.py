@@ -84,8 +84,7 @@ def test_version_one_database_adds_fsrs_state_without_data_loss(tmp_path) -> Non
                 """
             )
             connection.exec_driver_sql(
-                "INSERT INTO learning_states (id, review_count) "
-                "VALUES (1, 0), (2, 3)"
+                "INSERT INTO learning_states (id, review_count) VALUES (1, 0), (2, 3)"
             )
 
         assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION

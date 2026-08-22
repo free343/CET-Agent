@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 class OllamaProvider(LLMProvider):
-    def __init__(self, base_url: str, model: str, timeout_seconds: float = 60.0) -> None:
+    def __init__(
+        self, base_url: str, model: str, timeout_seconds: float = 60.0
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout_seconds = timeout_seconds

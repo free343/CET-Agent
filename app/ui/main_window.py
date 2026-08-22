@@ -91,7 +91,9 @@ class MainWindow(QMainWindow):
             button = QPushButton(label)
             button.setObjectName("NavButton")
             button.setCheckable(True)
-            button.clicked.connect(lambda _checked=False, value=index: self.show_page(value))
+            button.clicked.connect(
+                lambda _checked=False, value=index: self.show_page(value)
+            )
             sidebar_layout.addWidget(button)
             button_group.addButton(button)
             self.pages.addWidget(page)
@@ -194,7 +196,9 @@ class MainWindow(QMainWindow):
 
     def _active_workers(self) -> list:
         workers = (self.analysis_page.worker, self.chat_page.worker)
-        return [worker for worker in workers if worker is not None and worker.isRunning()]
+        return [
+            worker for worker in workers if worker is not None and worker.isRunning()
+        ]
 
     def _schedule_deferred_close(self) -> None:
         QTimer.singleShot(0, self._close_if_idle)

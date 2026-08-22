@@ -145,15 +145,24 @@ Local Ollama:
 - pytest cacheprovider is disabled by `pytest.ini` to avoid cache-directory write failures in restricted environments.
 - `scripts/validate_local_ai.py` is the repeatable P0 integration check for live chat, cached embeddings, semantic graph rebuild, structured cluster output, and AI cache reuse. Its latest cold and warm runs both exited successfully.
 
+### Delivery engineering
+
+- `requirements.txt` and `requirements-dev.txt` declare compatible direct dependencies; the corresponding `.lock` files pin the complete tested runtime and development dependency trees. Regenerate them with pip-tools 7.6.1 after changing a direct dependency.
+- `pyproject.toml` centralizes the Python 3.11 Ruff and Mypy baselines. The entire Python tree is Ruff-formatted; CI rejects lint, format, or application/script type-check drift.
+- `.github/workflows/ci.yml` runs on Windows for Python 3.11 and 3.13 with read-only repository permission. It installs the development lock, runs `pip check`, Ruff lint/format, Mypy, all tests, and the offscreen startup smoke. No Git remote is configured yet, so the workflow is locally validated but has not had a hosted run.
+
 ## 5. Verification ledger
 
 Update this section after every material change. Never report a feature as verified based only on code inspection.
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 83 passed in 1.78s | 2026-08-22 |
+| Full pytest suite | 83 passed in 1.91s from a clean lock-installed virtual environment | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
+| Ruff format gate | 72 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 51 source files | 2026-08-22 |
+| Locked dependency install | clean Python 3.13 virtual environment installed `requirements-dev.lock`; `pip check` passed; Python 3.11/win_amd64 wheel-resolution dry run passed | 2026-08-22 |
+| GitHub Actions workflow | Windows Python 3.11/3.13 matrix defined with current official v7 checkout/setup actions; local-equivalent full gate passed; hosted run pending remote configuration | 2026-08-22 |
 | Schema migration matrix | 5 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS state mapping, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
 | Official FSRS-6 reference vectors | initial Again/Hard/Good/Easy plus five-review sequence passed against py-fsrs 6.3.2 | 2026-08-22 |
 | Deterministic randomized algorithm invariants | 6,000 checks passed | 2026-08-22 |
@@ -174,9 +183,12 @@ Baseline commands:
 
 ```powershell
 Set-Location 'D:\work\english'
+python -m pip install -r requirements-dev.lock
+python -m pip check
 python -m pytest -q
 python -m ruff check app scripts tests main.py
-python -m mypy app scripts main.py --ignore-missing-imports
+python -m ruff format --check app scripts tests main.py
+python -m mypy
 $env:QT_QPA_PLATFORM='offscreen'
 python main.py --smoke-test
 python scripts/create_demo_data.py
@@ -197,7 +209,8 @@ python main.py
 
 ### P3: delivery engineering
 
-- No CI, formatter/static-analysis gate, dependency lockfile, release build, or Windows installer.
+- No release build or Windows installer.
+- The CI workflow has no hosted run evidence until a Git remote is configured and the branch is pushed.
 - No performance baseline for 100 confusion candidates.
 - No full packaging test for writable data/log locations after installation.
 
@@ -220,6 +233,7 @@ python main.py
 15. Conservative vocabulary licensing: generated data is distributed under CC BY-SA 3.0, with ECDICT MIT and FreeDict/WikDict/Wiktionary/DBnary attribution, exact version/hash provenance, and an explicit transformation record.
 16. Dual-source vocabulary gate: ECDICT supplies display fields and CET metadata, while FreeDict independently confirms an open bilingual entry and pronunciation. A source mismatch removes the row instead of guessing.
 17. Bounded initial workload: new open-data words are frequency-sorted and released independently per selected CET level at 20 per day. Level selection is a deterministic query filter, not an LLM decision.
+18. Reproducible quality gate: direct dependency ranges remain human-maintainable while pip-tools lock files pin actual installs. Windows Python 3.11 and 3.13 are the CI compatibility bounds; lint, formatting, type checks, tests, dependency integrity, and an offscreen startup must all pass.
 15. Fail-fast configuration: graph and reminder settings are validated before use; invalid bounds, non-finite weights, unsafe candidate limits, and invalid reminder windows are not silently accepted.
 16. Monotonic review history: a review cannot be committed at or before that word's previous review timestamp.
 17. Cache self-repair: malformed Embedding cache rows are discarded and regenerated, and network/model waits never occur inside an open cache transaction.

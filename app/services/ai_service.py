@@ -56,7 +56,9 @@ class AIService:
     def _in_scope(question: str) -> bool:
         normalized = question.strip().lower()
         refusal_markers = ("天气", "股票", "写代码", "旅游攻略", "菜谱", "政治新闻")
-        return bool(normalized) and not any(marker in normalized for marker in refusal_markers)
+        return bool(normalized) and not any(
+            marker in normalized for marker in refusal_markers
+        )
 
     def ask(self, question: str, *, use_advanced: bool = False) -> AIAnswer:
         confidence = self.assess_question(question)
@@ -120,7 +122,9 @@ class AIService:
                         model=cached.model,
                     )
                 except (ValidationError, ValueError):
-                    logger.warning("Ignoring invalid cached cluster analysis id=%s", cached.id)
+                    logger.warning(
+                        "Ignoring invalid cached cluster analysis id=%s", cached.id
+                    )
                     session.delete(cached)
 
         for attempt in range(2):
@@ -167,14 +171,18 @@ class AIService:
                             cached=True,
                             model=cached.model,
                         )
-                logger.info("Cluster analysis completed words=%s", ",".join(cluster.words))
+                logger.info(
+                    "Cluster analysis completed words=%s", ",".join(cluster.words)
+                )
                 return ClusterAnalysisResult(
                     analysis=analysis,
                     confidence=0.88,
                     model=self.local_provider.model,
                 )
             except (ValidationError, ValueError) as exc:
-                logger.warning("Invalid cluster JSON attempt=%s error=%s", attempt + 1, exc)
+                logger.warning(
+                    "Invalid cluster JSON attempt=%s error=%s", attempt + 1, exc
+                )
             except LLMUnavailableError as exc:
                 logger.warning("Cluster model unavailable: %s", exc)
                 return self._fallback(cluster, str(exc))
@@ -206,7 +214,9 @@ class AIService:
                 "Cluster analysis must explain every input word exactly once"
             )
 
-    def _fallback(self, cluster: ConfusionCluster, reason: str) -> ClusterAnalysisResult:
+    def _fallback(
+        self, cluster: ConfusionCluster, reason: str
+    ) -> ClusterAnalysisResult:
         analysis = ClusterAnalysis(
             summary="暂时无法生成个性化 AI 分析。确定性错词关系仍然可用。",
             confusion_reason=reason,

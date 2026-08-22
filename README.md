@@ -85,11 +85,12 @@ R(a,b) = 0.30 × semantic
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.lock
 Copy-Item .env.example .env
 ```
 
 macOS/Linux 激活命令为 `source .venv/bin/activate`，复制配置可使用 `cp .env.example .env`。
+`requirements.txt` 保留直接依赖的兼容范围，`requirements.lock` 固定经过验证的完整运行时依赖树。
 
 ## 启动
 
@@ -161,8 +162,17 @@ python scripts/create_demo_data.py
 
 ## 测试
 
+开发环境使用包含 pytest、Ruff 和 Mypy 的固定依赖：
+
+```powershell
+python -m pip install -r requirements-dev.lock
+```
+
 ```powershell
 python -m pytest -q
+python -m ruff check app scripts tests main.py
+python -m ruff format --check app scripts tests main.py
+python -m mypy
 ```
 
 测试覆盖 FSRS-6 官方参考向量、schema 升级、复习事务、UI 复习闭环、编辑距离、四类关系分数、Embedding 缓存、图连通分量、AI JSON 校验与缓存，以及提醒策略。无显示环境可做启动检查：
@@ -170,6 +180,14 @@ python -m pytest -q
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
 python main.py --smoke-test
+```
+
+`.github/workflows/ci.yml` 在 Windows 的 Python 3.11 和 3.13 上自动执行锁文件安装校验、Ruff、格式检查、Mypy、完整测试和离屏启动烟测。更新顶层依赖后，用固定的 pip-tools 版本重新生成锁文件：
+
+```powershell
+python -m pip install pip-tools==7.6.1
+python -m piptools compile --resolver=backtracking --strip-extras --no-emit-index-url --no-emit-trusted-host --output-file=requirements.lock requirements.txt
+python -m piptools compile --resolver=backtracking --strip-extras --no-emit-index-url --no-emit-trusted-host --output-file=requirements-dev.lock requirements-dev.txt
 ```
 
 ## 关键技术决策

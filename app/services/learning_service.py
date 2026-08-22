@@ -47,9 +47,7 @@ class LearningService:
         seven_days_ago = today_start - timedelta(days=6)
         thirty_days_ago = checked_at - timedelta(days=30)
         level_filter = (
-            (Word.level == self.study_level,)
-            if self.study_level is not None
-            else ()
+            (Word.level == self.study_level,) if self.study_level is not None else ()
         )
 
         with self.database.session() as session:
@@ -124,6 +122,7 @@ class LearningService:
             seven_day_accuracy=round(accuracy, 1),
             learning_streak=streak,
             high_frequency_wrong=tuple(
-                WrongWordStat(word=row.word, error_count=int(row.errors)) for row in wrong_rows
+                WrongWordStat(word=row.word, error_count=int(row.errors))
+                for row in wrong_rows
             ),
         )

@@ -32,12 +32,16 @@ class UTCDateTime(TypeDecorator[datetime]):
     impl = DateTime
     cache_ok = True
 
-    def process_bind_param(self, value: datetime | None, dialect: Any) -> datetime | None:
+    def process_bind_param(
+        self, value: datetime | None, dialect: Any
+    ) -> datetime | None:
         if value is None:
             return None
         return ensure_utc(value).replace(tzinfo=None)
 
-    def process_result_value(self, value: datetime | None, dialect: Any) -> datetime | None:
+    def process_result_value(
+        self, value: datetime | None, dialect: Any
+    ) -> datetime | None:
         if value is None:
             return None
         if value.tzinfo is None:
@@ -86,9 +90,7 @@ class LearningState(Base):
     __tablename__ = "learning_states"
     __table_args__ = (
         CheckConstraint("fsrs_state BETWEEN 1 AND 3", name="ck_fsrs_state"),
-        CheckConstraint(
-            "fsrs_step IS NULL OR fsrs_step >= 0", name="ck_fsrs_step"
-        ),
+        CheckConstraint("fsrs_step IS NULL OR fsrs_step >= 0", name="ck_fsrs_step"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -97,8 +99,12 @@ class LearningState(Base):
     )
     difficulty: Mapped[float] = mapped_column(Float, default=5.0)
     stability: Mapped[float] = mapped_column(Float, default=0.4)
-    last_review_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
-    next_review_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, index=True)
+    last_review_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime(), nullable=True
+    )
+    next_review_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=utc_now, index=True
+    )
     review_count: Mapped[int] = mapped_column(Integer, default=0)
     correct_count: Mapped[int] = mapped_column(Integer, default=0)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -108,7 +114,9 @@ class LearningState(Base):
         Integer, nullable=True, default=0, server_default="0"
     )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, onupdate=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=utc_now, onupdate=utc_now
+    )
 
     word: Mapped[Word] = relationship(back_populates="learning_state")
 
@@ -121,7 +129,9 @@ class ReviewLog(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    word_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True)
+    word_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), index=True
+    )
     reviewed_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
     rating: Mapped[int] = mapped_column(Integer)
     is_correct: Mapped[bool] = mapped_column(Boolean)
@@ -146,15 +156,23 @@ class ConfusionEdge(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    word_a_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True)
-    word_b_id: Mapped[int] = mapped_column(ForeignKey("words.id", ondelete="CASCADE"), index=True)
+    word_a_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), index=True
+    )
+    word_b_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), index=True
+    )
     semantic_score: Mapped[float] = mapped_column(Float, default=0.0)
     spelling_score: Mapped[float] = mapped_column(Float, default=0.0)
     coerror_score: Mapped[float] = mapped_column(Float, default=0.0)
     temporal_score: Mapped[float] = mapped_column(Float, default=0.0)
     total_score: Mapped[float] = mapped_column(Float, index=True)
-    relation_type: Mapped[RelationType] = mapped_column(SqlEnum(RelationType, native_enum=False))
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, onupdate=utc_now)
+    relation_type: Mapped[RelationType] = mapped_column(
+        SqlEnum(RelationType, native_enum=False)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=utc_now, onupdate=utc_now
+    )
 
     word_a: Mapped[Word] = relationship(foreign_keys=[word_a_id])
     word_b: Mapped[Word] = relationship(foreign_keys=[word_b_id])
@@ -162,7 +180,9 @@ class ConfusionEdge(Base):
 
 class AIAnalysis(Base):
     __tablename__ = "ai_analyses"
-    __table_args__ = (UniqueConstraint("analysis_type", "content_hash", name="uq_ai_cache"),)
+    __table_args__ = (
+        UniqueConstraint("analysis_type", "content_hash", name="uq_ai_cache"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     analysis_type: Mapped[str] = mapped_column(String(50), index=True)
@@ -175,7 +195,9 @@ class AIAnalysis(Base):
 
 class EmbeddingCache(Base):
     __tablename__ = "embedding_cache"
-    __table_args__ = (UniqueConstraint("model", "content_hash", name="uq_embedding_cache"),)
+    __table_args__ = (
+        UniqueConstraint("model", "content_hash", name="uq_embedding_cache"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     model: Mapped[str] = mapped_column(String(200))
@@ -197,9 +219,7 @@ class ReminderRuntimeState(Base):
     last_snooze_at: Mapped[datetime | None] = mapped_column(
         UTCDateTime(), nullable=True
     )
-    completed_local_date: Mapped[str | None] = mapped_column(
-        String(10), nullable=True
-    )
+    completed_local_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, onupdate=utc_now
     )

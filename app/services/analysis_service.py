@@ -81,7 +81,12 @@ class AnalysisService:
         cutoff = now - timedelta(days=self.settings.confusion_window_days)
         with self.database.session() as session:
             rows = session.execute(
-                select(Word.id, Word.word, Word.meaning, func.count(ReviewLog.id).label("errors"))
+                select(
+                    Word.id,
+                    Word.word,
+                    Word.meaning,
+                    func.count(ReviewLog.id).label("errors"),
+                )
                 .join(ReviewLog, ReviewLog.word_id == Word.id)
                 .where(
                     ReviewLog.reviewed_at >= cutoff,
@@ -95,7 +100,9 @@ class AnalysisService:
             if not rows:
                 return []
             candidate_ids = [row.id for row in rows]
-            errors_by_word: dict[int, list[datetime]] = {word_id: [] for word_id in candidate_ids}
+            errors_by_word: dict[int, list[datetime]] = {
+                word_id: [] for word_id in candidate_ids
+            }
             for word_id, reviewed_at in session.execute(
                 select(ReviewLog.word_id, ReviewLog.reviewed_at).where(
                     ReviewLog.word_id.in_(candidate_ids),
@@ -130,7 +137,9 @@ class AnalysisService:
                 }
             except (EmbeddingUnavailableError, ValueError) as exc:
                 embedding_available = False
-                logger.warning("Graph build continuing without semantic vectors: %s", exc)
+                logger.warning(
+                    "Graph build continuing without semantic vectors: %s", exc
+                )
 
         weights = RelationWeights(
             semantic=self.settings.semantic_weight,
@@ -142,7 +151,9 @@ class AnalysisService:
         for first, second in combinations(candidates, 2):
             semantic = 0.0
             if first.word_id in vectors and second.word_id in vectors:
-                semantic = cosine_similarity(vectors[first.word_id], vectors[second.word_id])
+                semantic = cosine_similarity(
+                    vectors[first.word_id], vectors[second.word_id]
+                )
             scores = score_relation(
                 semantic=semantic,
                 spelling=spelling_similarity(first.word, second.word),
@@ -200,7 +211,9 @@ class AnalysisService:
         with self.database.session() as session:
             edges = session.scalars(
                 select(ConfusionEdge)
-                .options(joinedload(ConfusionEdge.word_a), joinedload(ConfusionEdge.word_b))
+                .options(
+                    joinedload(ConfusionEdge.word_a), joinedload(ConfusionEdge.word_b)
+                )
                 .where(ConfusionEdge.total_score >= self.settings.confusion_threshold)
                 .order_by(ConfusionEdge.total_score.desc())
             ).all()
@@ -224,9 +237,12 @@ class AnalysisService:
                 )
             ).all()
             graph_edges = [
-                GraphEdge(edge.word_a_id, edge.word_b_id, edge.total_score) for edge in edges
+                GraphEdge(edge.word_a_id, edge.word_b_id, edge.total_score)
+                for edge in edges
             ]
-            components = cluster_word_ids(graph_edges, self.settings.confusion_threshold)
+            components = cluster_word_ids(
+                graph_edges, self.settings.confusion_threshold
+            )
             if not components:
                 return []
             word_ids = {word_id for component in components for word_id in component}
@@ -243,7 +259,9 @@ class AnalysisService:
                         ReviewLog.reviewed_at >= cutoff,
                     )
                     .group_by(ReviewLog.word_id)
-                ).tuples().all()
+                )
+                .tuples()
+                .all()
             )
             results: list[ConfusionCluster] = []
             for number, component in enumerate(components, start=1):
@@ -252,7 +270,8 @@ class AnalysisService:
                 component_edges = [
                     edge
                     for edge in edges
-                    if edge.word_a_id in component_set and edge.word_b_id in component_set
+                    if edge.word_a_id in component_set
+                    and edge.word_b_id in component_set
                 ]
                 relation_totals: dict[RelationType, float] = {}
                 for edge in component_edges:
@@ -272,7 +291,9 @@ class AnalysisService:
                         cluster_number=number,
                         word_ids=tuple(core_ids),
                         words=tuple(words[word_id].word for word_id in core_ids),
-                        error_counts=tuple(int(error_counts.get(word_id, 0)) for word_id in core_ids),
+                        error_counts=tuple(
+                            int(error_counts.get(word_id, 0)) for word_id in core_ids
+                        ),
                         relation_type=relation,
                         average_score=average,
                     )

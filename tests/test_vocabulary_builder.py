@@ -113,8 +113,7 @@ def test_rows_require_validation_from_both_sources() -> None:
         {
             "known": parse_ecdict_csv(
                 io.StringIO(
-                    "word,phonetic,translation,tag,frq,bnc\n"
-                    "known,noun,已知,cet4,1,1\n"
+                    "word,phonetic,translation,tag,frq,bnc\nknown,noun,已知,cet4,1,1\n"
                 )
             )["known"]
         },

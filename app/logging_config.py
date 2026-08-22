@@ -27,4 +27,3 @@ def configure_logging(log_dir: Path, level: str = "INFO") -> None:
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
     root.addHandler(file_handler)
     root.addHandler(stream_handler)
-

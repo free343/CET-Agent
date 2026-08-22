@@ -42,7 +42,9 @@ def create_demo_data() -> None:
                     for word_text in group:
                         word = all_words[word_text]
                         state = session.scalar(
-                            select(LearningState).where(LearningState.word_id == word.id)
+                            select(LearningState).where(
+                                LearningState.word_id == word.id
+                            )
                         )
                         for occurrence in range(4):
                             reviewed_at = now - timedelta(
@@ -85,4 +87,3 @@ def create_demo_data() -> None:
 
 if __name__ == "__main__":
     create_demo_data()
-

@@ -17,11 +17,12 @@ class DatabaseBusyError(RuntimeError):
     """Friendly boundary error for a temporarily locked SQLite database."""
 
 
-
 class Database:
     def __init__(self, url: str, *, echo: bool = False) -> None:
         if url.startswith("sqlite:///"):
-            Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+            Path(url.removeprefix("sqlite:///")).parent.mkdir(
+                parents=True, exist_ok=True
+            )
         self.engine = create_engine(
             url,
             echo=echo,

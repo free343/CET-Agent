@@ -10,18 +10,14 @@ NOON = datetime(2026, 8, 21, 12, tzinfo=LOCAL_ZONE)
 
 
 def test_no_reminder_during_quiet_hours() -> None:
-    local_midnight = datetime(
-        2026, 8, 21, 2, 0, tzinfo=LOCAL_ZONE
-    )
+    local_midnight = datetime(2026, 8, 21, 2, 0, tzinfo=LOCAL_ZONE)
     decision = POLICY.evaluate(ReminderContext(local_midnight, 5))
     assert decision.should_notify is False
     assert decision.reason == "quiet_hours"
 
 
 def test_no_reminder_during_review_session() -> None:
-    decision = POLICY.evaluate(
-        ReminderContext(NOON, 5, review_session_active=True)
-    )
+    decision = POLICY.evaluate(ReminderContext(NOON, 5, review_session_active=True))
     assert decision.should_notify is False
     assert decision.reason == "review_session_active"
 

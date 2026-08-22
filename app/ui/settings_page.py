@@ -36,7 +36,9 @@ class SettingsPage(QWidget):
             ),
         )
         layout.addWidget(card)
-        note = QLabel("第一版通过项目根目录的 .env 修改设置；API key 不会显示或写入日志。")
+        note = QLabel(
+            "第一版通过项目根目录的 .env 修改设置；API key 不会显示或写入日志。"
+        )
         note.setStyleSheet("color: #64748b;")
         layout.addWidget(note)
         layout.addStretch()

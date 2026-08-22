@@ -23,8 +23,7 @@ CURATED_SOURCE = PROJECT_ROOT / "data" / "sample_words.csv"
 
 ECDICT_REVISION = "bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b"
 ECDICT_URL = (
-    "https://raw.githubusercontent.com/skywind3000/ECDICT/"
-    f"{ECDICT_REVISION}/ecdict.csv"
+    f"https://raw.githubusercontent.com/skywind3000/ECDICT/{ECDICT_REVISION}/ecdict.csv"
 )
 ECDICT_SHA256 = "1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf"
 
@@ -83,9 +82,7 @@ def parse_freedict_tei(source: IO[bytes]) -> dict[str, DictionaryEntry]:
             )
             translations = (
                 "".join(quote.itertext()).strip()
-                for quote in entry.findall(
-                    f'.//{_TEI}cit[@type="trans"]/{_TEI}quote'
-                )
+                for quote in entry.findall(f'.//{_TEI}cit[@type="trans"]/{_TEI}quote')
             )
             _extend_unique(values["pronunciations"], pronunciations)
             _extend_unique(
@@ -215,8 +212,7 @@ def build_artifact(
         writer.writerows(rows)
 
     level_counts = {
-        level: sum(row["level"] == level for row in rows)
-        for level in ("CET4", "CET6")
+        level: sum(row["level"] == level for row in rows) for level in ("CET4", "CET6")
     }
     provenance: dict[str, object] = {
         "schema_version": 1,
@@ -266,9 +262,7 @@ def _download_verified(
     expected_digest: str,
 ) -> None:
     hasher = hashlib.new(algorithm)
-    with httpx.stream(
-        "GET", url, follow_redirects=True, timeout=120.0
-    ) as response:
+    with httpx.stream("GET", url, follow_redirects=True, timeout=120.0) as response:
         response.raise_for_status()
         with destination.open("wb") as output:
             for chunk in response.iter_bytes():

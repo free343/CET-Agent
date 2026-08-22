@@ -139,7 +139,9 @@ def test_out_of_scope_question_never_calls_model(database) -> None:
 
 
 def test_unavailable_model_returns_safe_cluster_fallback(database) -> None:
-    result = AIService(database, UnavailableProvider()).analyze_cluster(sample_cluster())
+    result = AIService(database, UnavailableProvider()).analyze_cluster(
+        sample_cluster()
+    )
     assert result.degraded is True
     assert result.model == "offline-3b"
     assert "确定性错词关系仍然可用" in result.analysis.summary
@@ -154,7 +156,9 @@ def test_changing_model_does_not_reuse_previous_cache(database) -> None:
     )
 
     AIService(database, first_provider).analyze_cluster(sample_cluster())
-    second_result = AIService(database, second_provider).analyze_cluster(sample_cluster())
+    second_result = AIService(database, second_provider).analyze_cluster(
+        sample_cluster()
+    )
 
     assert first_provider.calls == 1
     assert second_provider.calls == 1
@@ -167,7 +171,9 @@ def test_concurrent_cluster_analysis_cache_writes_converge(database) -> None:
     service = AIService(database, BarrierProvider(Barrier(2)))
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _index: service.analyze_cluster(sample_cluster()), range(2)))
+        results = list(
+            pool.map(lambda _index: service.analyze_cluster(sample_cluster()), range(2))
+        )
 
     assert sorted(result.cached for result in results) == [False, True]
     with database.session() as session:

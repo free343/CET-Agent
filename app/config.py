@@ -103,11 +103,15 @@ class Settings:
             self.temporal_weight,
         )
         if any(not math.isfinite(value) or value < 0.0 for value in weights):
-            raise ValueError("Confusion relation weights must be finite and non-negative")
+            raise ValueError(
+                "Confusion relation weights must be finite and non-negative"
+            )
         if not math.isclose(sum(weights), 1.0, abs_tol=1e-6):
             raise ValueError("Confusion relation weights must sum to 1.0")
         if self.reminder_start_time >= self.reminder_end_time:
-            raise ValueError("REMINDER_START_TIME must be earlier than REMINDER_END_TIME")
+            raise ValueError(
+                "REMINDER_START_TIME must be earlier than REMINDER_END_TIME"
+            )
         if self.reminder_cooldown_minutes <= 0:
             raise ValueError("REMINDER_COOLDOWN_MINUTES must be greater than 0")
 

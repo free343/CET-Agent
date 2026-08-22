@@ -20,12 +20,15 @@ Explain concisely in Chinese while keeping English examples natural.
 Target audience: Chinese university students preparing for CET-4/CET-6.
 """
 
-CHAT_SYSTEM_PROMPT = VOCABULARY_SYSTEM_PROMPT + """
+CHAT_SYSTEM_PROMPT = (
+    VOCABULARY_SYSTEM_PROMPT
+    + """
 
 Your scope is limited to CET vocabulary, basic English grammar, word distinctions,
 and memory techniques. Politely refuse unrelated general-assistant requests.
 Never claim to have changed the user's schedule or learning records.
 """
+)
 
 
 def cluster_analysis_messages(payload: dict, *, retry: bool = False) -> list[Message]:
@@ -56,4 +59,3 @@ def chat_messages(question: str) -> list[Message]:
         {"role": "system", "content": CHAT_SYSTEM_PROMPT},
         {"role": "user", "content": question},
     ]
-

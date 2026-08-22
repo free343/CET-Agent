@@ -106,9 +106,7 @@ def test_equal_history_produces_deterministic_interval() -> None:
         ("fsrs_step", -1),
     ),
 )
-def test_invalid_persisted_memory_state_is_rejected(
-    field: str, value: object
-) -> None:
+def test_invalid_persisted_memory_state_is_rejected(field: str, value: object) -> None:
     state = State(
         last_review_at=NOW - timedelta(days=2),
         review_count=1,

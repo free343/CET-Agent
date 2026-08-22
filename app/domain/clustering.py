@@ -29,4 +29,3 @@ def select_core_word_ids(
             weighted_degree.items(), key=lambda item: (-item[1], item[0])
         )[:limit]
     ]
-
