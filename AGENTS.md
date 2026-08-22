@@ -102,6 +102,7 @@ Local Ollama:
 - `app/domain/clustering.py` uses connected components; clusters above eight words pass only their highest-weight core words to the LLM.
 - The Analysis list defines an explicit readable selected-item style; selection no longer renders dark/white text invisibly against the platform theme.
 - `scripts/create_demo_data.py` idempotently creates correlated errors for three groups. Latest deterministic demo result: 7 candidates, 5 edges, 3 clusters (`adapt/adopt/adept`, `economic/economical`, `complement/compliment`).
+- `scripts/benchmark_confusion_graph.py` creates an ephemeral worst-case dense graph with 100 candidates and 4,950 persisted edges, asserts the exact result, runs three timed rebuilds, and fails if the median exceeds a configurable five-second budget. It never touches the runtime database.
 
 ### LLM and Embedding integration
 
@@ -160,13 +161,14 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 104 passed in 1.82s | 2026-08-22 |
+| Full pytest suite | 105 passed in 2.13s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 74 files already formatted | 2026-08-22 |
-| Mypy application/scripts check | exit code 0; 52 source files | 2026-08-22 |
+| Ruff format gate | 76 files already formatted | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 53 source files | 2026-08-22 |
 | Deterministic chat routing | 15 new/updated routing and integration cases cover local vocabulary/grammar, Unicode normalization, advanced confirmation, empty/general/off-topic refusal, scope override, and zero-call refusal | 2026-08-22 |
 | Advanced Provider bootstrap | disabled/default, independent OpenAI-compatible construction, invalid/incomplete configuration rejection, explicit advanced dispatch, and API-key repr redaction passed | 2026-08-22 |
 | Live advanced-provider dispatch | explicit advanced choice returned a non-degraded 283-character response from independent `qwen2.5:3b` while the local Provider pointed to an unreachable endpoint | 2026-08-22 |
+| 100-candidate graph performance | dense 4,950-edge rebuild runs: 0.208s, 0.223s, 0.208s; median 0.208s; exact one-cluster invariant passed | 2026-08-22 |
 | Locked dependency install | clean Python 3.13 virtual environment installed `requirements-dev.lock`; `pip check` passed; Python 3.11/win_amd64 wheel-resolution dry run passed | 2026-08-22 |
 | GitHub Actions workflow | Windows Python 3.11/3.13 matrix defined with current official v7 checkout/setup actions; local-equivalent full gate passed; hosted run pending remote configuration | 2026-08-22 |
 | Schema migration matrix | 5 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS state mapping, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
@@ -198,6 +200,7 @@ python -m mypy
 $env:QT_QPA_PLATFORM='offscreen'
 python main.py --smoke-test
 python scripts/create_demo_data.py
+python scripts/benchmark_confusion_graph.py
 python scripts/validate_local_ai.py
 & 'C:\Users\Admin\AppData\Local\Programs\Ollama\ollama.exe' list
 python main.py
@@ -215,7 +218,6 @@ python main.py
 
 - No release build or Windows installer.
 - The CI workflow has no hosted run evidence until a Git remote is configured and the branch is pushed.
-- No performance baseline for 100 confusion candidates.
 - No full packaging test for writable data/log locations after installation.
 
 ## 7. Key design decisions
@@ -240,6 +242,7 @@ python main.py
 18. Reproducible quality gate: direct dependency ranges remain human-maintainable while pip-tools lock files pin actual installs. Windows Python 3.11 and 3.13 are the CI compatibility bounds; lint, formatting, type checks, tests, dependency integrity, and an offscreen startup must all pass.
 19. Explainable model routing: a pure domain policy combines normalized learning-intent, precise out-of-scope phrases, text size, and task complexity into a structured route. Scope refusal runs before complexity escalation, explicit language-learning context can override an ambiguous noun, and the UI never infers a route from a magic numeric threshold.
 20. Explicit advanced-model opt-in: advanced chat is a separately configured Provider, disabled by default, and invoked only after the deterministic policy asks and the user chooses it. Its credentials and endpoint identity never replace or leak through the local Provider configuration.
+21. Worst-case graph budget: scale validation uses identical deterministic embeddings and synchronized errors so all 4,950 possible edges survive, covering both O(n²) scoring and maximum SQLite persistence cost. The repeatable script uses an ephemeral database and a conservative five-second median guard.
 15. Fail-fast configuration: graph and reminder settings are validated before use; invalid bounds, non-finite weights, unsafe candidate limits, and invalid reminder windows are not silently accepted.
 16. Monotonic review history: a review cannot be committed at or before that word's previous review timestamp.
 17. Cache self-repair: malformed Embedding cache rows are discarded and regenerated, and network/model waits never occur inside an open cache transaction.

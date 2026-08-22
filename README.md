@@ -200,6 +200,14 @@ python -m piptools compile --resolver=backtracking --strip-extras --no-emit-inde
 python -m piptools compile --resolver=backtracking --strip-extras --no-emit-index-url --no-emit-trusted-host --output-file=requirements-dev.lock requirements-dev.txt
 ```
 
+最大候选规模的可重复性能基线使用临时数据库、100 个候选、4,950 条全连接边和确定性向量，不读取或修改真实学习数据：
+
+```powershell
+python scripts/benchmark_confusion_graph.py
+```
+
+脚本默认运行三次，并在中位重建时间超过 5 秒时返回失败状态；可通过 `--iterations` 和 `--max-median-seconds` 调整测量次数和预算。
+
 ## 关键技术决策
 
 - SQLite 时间通过自定义 SQLAlchemy 类型统一存储为 UTC，并在读取时恢复时区；
