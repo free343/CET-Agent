@@ -20,7 +20,7 @@ NOW = datetime(2026, 8, 21, 12, tzinfo=UTC)
 def test_snooze_survives_service_restart(database, word_id) -> None:
     review_service = ReviewService(database)
     first = ReminderService(review_service, clock=lambda: NOW)
-    first.snooze(NOW)
+    wake_at = first.snooze(NOW)
 
     restarted = ReminderService(review_service, clock=lambda: NOW)
     status = restarted.evaluate(NOW + timedelta(minutes=10))
@@ -28,6 +28,24 @@ def test_snooze_survives_service_restart(database, word_id) -> None:
     assert restarted.last_snooze_time == NOW
     assert status.decision.should_notify is False
     assert status.decision.reason == "snoozed"
+    assert wake_at == NOW + timedelta(minutes=30)
+    assert status.next_evaluation_at == wake_at
+
+
+def test_notification_claim_schedules_exact_cooldown_recheck(
+    database,
+    word_id,
+) -> None:
+    service = ReminderService(ReviewService(database), clock=lambda: NOW)
+
+    claimed = service.evaluate_and_claim(NOW)
+    suppressed = service.evaluate(NOW + timedelta(minutes=10))
+
+    expected = NOW + timedelta(minutes=30)
+    assert claimed.decision.should_notify is True
+    assert claimed.next_evaluation_at == expected
+    assert suppressed.decision.reason == "notification_cooldown"
+    assert suppressed.next_evaluation_at == expected
 
 
 def test_new_due_word_clears_completed_state(database, word_id) -> None:

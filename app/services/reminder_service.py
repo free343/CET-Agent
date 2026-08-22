@@ -26,6 +26,7 @@ class ReminderStatus:
     decision: ReminderDecision
     due_word_count: int
     estimated_minutes: int
+    next_evaluation_at: datetime | None = None
 
 
 class ReminderService:
@@ -107,11 +108,18 @@ class ReminderService:
             )
             if claim_notification and decision.should_notify:
                 state.last_notification_at = checked_at
+        next_evaluation_at = self._next_evaluation_at(
+            decision,
+            checked_at=checked_at,
+            state=state,
+            claimed_notification=claim_notification and decision.should_notify,
+        )
         self._sync_from_state(state, local_date)
         return ReminderStatus(
             decision=decision,
             due_word_count=due_count,
             estimated_minutes=max(1, math.ceil(due_count / 4)) if due_count else 0,
+            next_evaluation_at=next_evaluation_at,
         )
 
     def notification_sent(self, now: datetime | None = None) -> None:
@@ -122,13 +130,14 @@ class ReminderService:
             state.last_notification_at = checked_at
         self._sync_from_state(state, checked_at.astimezone().date())
 
-    def snooze(self, now: datetime | None = None) -> None:
+    def snooze(self, now: datetime | None = None) -> datetime:
         checked_at = ensure_utc(now or self._clock())
         with self.review_service.database.session() as session:
             self.review_service.database.begin_serialized_write(session)
             state = self._get_or_create_state(session)
             state.last_snooze_at = checked_at
         self._sync_from_state(state, checked_at.astimezone().date())
+        return checked_at + self.policy.cooldown
 
     def set_review_session_active(self, active: bool) -> None:
         with self._session_state_lock:
@@ -186,6 +195,25 @@ class ReminderService:
         self.last_notification_time = state.last_notification_at
         self.last_snooze_time = state.last_snooze_at
         self.today_completed = state.completed_local_date == local_date.isoformat()
+
+    def _next_evaluation_at(
+        self,
+        decision: ReminderDecision,
+        *,
+        checked_at: datetime,
+        state: ReminderRuntimeState,
+        claimed_notification: bool,
+    ) -> datetime | None:
+        if decision.reason == "snoozed" and state.last_snooze_at is not None:
+            return ensure_utc(state.last_snooze_at) + self.policy.cooldown
+        if (
+            decision.reason == "notification_cooldown"
+            and state.last_notification_at is not None
+        ):
+            return ensure_utc(state.last_notification_at) + self.policy.cooldown
+        if claimed_notification:
+            return checked_at + self.policy.cooldown
+        return None
 
     def _update_review_lease(
         self,

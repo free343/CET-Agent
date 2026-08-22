@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections import deque
 from collections.abc import Callable
+from datetime import datetime
 from functools import partial
 
 from PySide6.QtCore import QTimer
@@ -36,8 +38,24 @@ from app.ui.settings_page import SettingsPage
 from app.ui.theme import APP_STYLESHEET
 from app.ui.widgets.async_worker import AsyncWorker
 from app.ui.widgets.reminder_banner import ReminderBanner
+from app.utils.datetime_utils import ensure_utc, utc_now
 
 logger = logging.getLogger(__name__)
+MAX_QT_TIMER_INTERVAL_MS = 2_147_483_647
+
+
+def reminder_wakeup_delay_ms(
+    wake_at: datetime,
+    *,
+    now: datetime | None = None,
+) -> int:
+    remaining_seconds = (
+        ensure_utc(wake_at) - ensure_utc(now or utc_now())
+    ).total_seconds()
+    return min(
+        MAX_QT_TIMER_INTERVAL_MS,
+        max(0, math.ceil(remaining_seconds * 1_000)),
+    )
 
 
 class MainWindow(QMainWindow):
@@ -133,6 +151,9 @@ class MainWindow(QMainWindow):
         self.reminder_timer.setInterval(5 * 60 * 1000)
         self.reminder_timer.timeout.connect(self._check_reminder)
         self.reminder_timer.start()
+        self.reminder_wakeup_timer = QTimer(self)
+        self.reminder_wakeup_timer.setSingleShot(True)
+        self.reminder_wakeup_timer.timeout.connect(self._check_reminder)
         QTimer.singleShot(1500, self._check_reminder)
         self.dashboard_page.refresh()
 
@@ -235,6 +256,7 @@ class MainWindow(QMainWindow):
             if not isinstance(result, ReminderStatus):
                 logger.error("Reminder evaluation returned an invalid result")
                 return
+            self._schedule_reminder_wakeup(result.next_evaluation_at)
             if not result.decision.should_notify or self._closing_after_workers:
                 return
             self.notification_adapter.notify(
@@ -250,7 +272,17 @@ class MainWindow(QMainWindow):
                 result.due_word_count,
             )
         elif action == "snooze":
+            if isinstance(result, datetime):
+                self._schedule_reminder_wakeup(result)
+            else:
+                logger.error("Reminder snooze returned an invalid wake-up time")
             logger.info("Review reminder snoozed")
+
+    def _schedule_reminder_wakeup(self, wake_at: datetime | None) -> None:
+        if wake_at is None:
+            self.reminder_wakeup_timer.stop()
+            return
+        self.reminder_wakeup_timer.start(reminder_wakeup_delay_ms(wake_at))
 
     def _reminder_task_failed(self, message: str) -> None:
         logger.error(
@@ -270,6 +302,7 @@ class MainWindow(QMainWindow):
         if not self._shutdown_started:
             self._shutdown_started = True
             self.reminder_timer.stop()
+            self.reminder_wakeup_timer.stop()
             self.reminder_service.set_review_session_active(False)
             self._enqueue_reminder_task(
                 "release_review_session",

@@ -145,6 +145,7 @@ Local Ollama:
 - A newly due word on the same day clears a stale completed state.
 - A far-future persisted notification timestamp cannot suppress reminders indefinitely after a system-clock correction; only a small rollback within the configured cooldown remains suppressed.
 - Main-window reminder evaluation, snooze persistence, and post-session completion checks share one FIFO `AsyncWorker` queue. Duplicate timer evaluations are coalesced, and no reminder database operation blocks Qt event handling.
+- Snooze and notification claims return an absolute persisted cooldown-expiry time. A dedicated single-shot Qt timer schedules that exact re-evaluation while the five-minute heartbeat remains as recovery for restart, sleep, clock changes, and duplicate-instance races.
 - Each application process owns a renewable 10-minute active-review lease. Entering/reviewing publishes it, leaving or closing releases it, expired leases are deleted during evaluation, and any live instance lease suppresses notifications across all windows.
 - `app/infrastructure/notification_adapter.py` provides a Qt system-tray notification.
 - `app/ui/widgets/reminder_banner.py` contains the actionable “start review” and “snooze 30 minutes” buttons.
@@ -176,12 +177,13 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 168 passed in 6.38s | 2026-08-22 |
+| Full pytest suite | 171 passed in 6.36s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
 | Ruff format gate | 87 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 56 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
 | Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
+| Exact reminder wake-up | persisted Snooze and claimed-notification cooldowns expose one absolute 30-minute expiry; UI millisecond conversion is exact, non-negative, and Qt-bounded; restart evaluation reconstructs the same target; focused reminder/UI tests passed | 2026-08-22 |
 | Cross-instance active-review lease | independent owners coexist; releasing one preserves another; observer notifications are suppressed; expired leases are removed; hidden review-worker results cannot republish activity | 2026-08-22 |
 | AI capacity budgets | oversized question refusal, 4,000-character chat truncation, 32,000-character structured raw guard, bounded schema fields/lists/options, 2,048-token Provider requests, and 200/300-block UI documents passed | 2026-08-22 |
 | Bounded in-session chat context | four-exchange/6,000-character budgets, complete-pair retention, prompt role order, and second-question UI context propagation passed; history remains memory-only | 2026-08-22 |
@@ -214,7 +216,7 @@ Update this section after every material change. Never report a feature as verif
 | Latest warm full local-AI validation | exit code 0 on schema v4 repeat startup; chat 2.606s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
 | Live uncached bounded structured output | `accept/except` analysis under the 2,048-token Provider limit returned non-degraded schema-valid output for both words; 829 JSON characters | 2026-08-22 |
 | Frozen writable-path resolution | source/frozen/local-app-data/home-fallback/relative-database cases plus non-overwriting `.env.example` install passed | 2026-08-22 |
-| Windows onedir package | rebuilt with the bounded-chat/shutdown changes; packaged smoke exited 0, created schema v4 with 4,611 words and `integrity_check=ok` under isolated `LOCALAPPDATA`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
+| Windows onedir package | rebuilt with bounded chat, safe shutdown, and exact reminder wake-up; packaged smoke exited 0, created schema v4 with 4,611 words and `integrity_check=ok` under isolated `LOCALAPPDATA`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
 | Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; Snooze then immediate close exited with zero process/lease remnants; a controlled 15-second local Provider proved close began with two live workers before the response and exited automatically after completion | 2026-08-22 |
 
 Baseline commands:
@@ -241,7 +243,7 @@ python main.py
 ### P2: product completeness
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
-- Complete the remaining native Windows validation for tray/toast presentation and real 30-minute snooze expiry timing. Closing during a confirmed active uncached Provider request is now verified.
+- Complete the remaining native Windows validation for tray/toast presentation. Exact 30-minute Snooze expiry is covered by deterministic service/UI scheduling tests without making the test suite wait in real time; closing during a confirmed active uncached Provider request is verified.
 
 ### P3: delivery engineering
 
@@ -292,6 +294,7 @@ python main.py
 41. Ephemeral bounded conversation: follow-up questions may use only recent complete successful exchanges, capped independently by count and characters. Conversation state belongs to the current Chat page, is never written to SQLite, and cannot turn a refused or degraded response into future prompt context.
 42. Event-loop-owned shutdown: smoke and interactive close both enter the real window close path. Application exit occurs only after every page/reminder worker has finished and the process-owned review lease has been released, including when the window is already hidden during deferred close.
 43. Lost-finish recovery: a close watcher must connect to `finished` before checking the worker state again. The signal covers future completion and the post-connection state check covers completion that raced ahead of the connection; duplicate deferred-close scheduling is harmless and preferable to a hidden hung process.
+44. Absolute reminder wake-up: persisted cooldown state owns the target time and the UI owns only timer scheduling. Both heartbeat and one-shot paths re-evaluate through the same atomic policy; no UI timer is allowed to bypass the database claim or independently decide to notify.
 
 ## 8. Development constraints
 

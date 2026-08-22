@@ -14,7 +14,7 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 - SQLite + SQLAlchemy 2.x 本地数据层，显式版本迁移、首次启动自动建表并幂等导入经验证的开放词库；
 - 官方 FSRS-6 调度器，维护 Difficulty、Stability、学习阶段与下一次复习时间；
 - 完整 ReviewLog：评分、正确性、耗时、题型、答案和调度前后状态；
-- 确定性复习队列、统计和主动提醒策略，支持 30 分钟 Snooze、后台原子通知领取和多窗口复习租约；
+- 确定性复习队列、统计和主动提醒策略，支持持久化的精确 30 分钟 Snooze、后台原子通知领取和多窗口复习租约；
 - Personal Vocabulary Confusion Graph 与 connected-components 词簇；
 - 拼写、语义、共错和时间相关度的混合评分；
 - Ollama 与 OpenAI-compatible LLM Provider 接口；

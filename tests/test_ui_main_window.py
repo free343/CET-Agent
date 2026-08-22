@@ -3,14 +3,24 @@ from __future__ import annotations
 import os
 import threading
 from collections import deque
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication, QMainWindow
 
-from app.ui.main_window import MainWindow
+from app.domain.reminder_policy import ReminderDecision
+from app.services.reminder_service import ReminderStatus
+from app.ui.main_window import (
+    MAX_QT_TIMER_INTERVAL_MS,
+    MainWindow,
+    reminder_wakeup_delay_ms,
+)
 from app.ui.widgets.reminder_banner import ReminderBanner
+from app.utils.datetime_utils import UTC
+
+NOW = datetime(2026, 8, 21, 12, tzinfo=UTC)
 
 
 class ReminderQueueHarness(QMainWindow):
@@ -207,6 +217,52 @@ def test_reminder_check_enqueues_atomic_evaluation() -> None:
     MainWindow._check_reminder(window_like)
 
     assert queued == [("evaluate", evaluate_and_claim, True)]
+
+
+def test_reminder_wakeup_delay_is_exact_bounded_and_never_negative() -> None:
+    assert (
+        reminder_wakeup_delay_ms(
+            NOW + timedelta(minutes=30),
+            now=NOW,
+        )
+        == 30 * 60 * 1_000
+    )
+    assert (
+        reminder_wakeup_delay_ms(
+            NOW - timedelta(seconds=1),
+            now=NOW,
+        )
+        == 0
+    )
+    assert (
+        reminder_wakeup_delay_ms(
+            NOW + timedelta(days=100),
+            now=NOW,
+        )
+        == MAX_QT_TIMER_INTERVAL_MS
+    )
+
+
+def test_reminder_results_schedule_persisted_wakeup_time() -> None:
+    scheduled: list[datetime | None] = []
+    window_like = SimpleNamespace(
+        reminder_worker_action="evaluate",
+        _schedule_reminder_wakeup=scheduled.append,
+        _closing_after_workers=False,
+    )
+    wake_at = NOW + timedelta(minutes=30)
+    status = ReminderStatus(
+        decision=ReminderDecision(False, "snoozed"),
+        due_word_count=4,
+        estimated_minutes=1,
+        next_evaluation_at=wake_at,
+    )
+
+    MainWindow._reminder_task_succeeded(window_like, status)
+    window_like.reminder_worker_action = "snooze"
+    MainWindow._reminder_task_succeeded(window_like, wake_at)
+
+    assert scheduled == [wake_at, wake_at]
 
 
 def test_reminder_task_queue_serializes_work_off_ui_thread() -> None:
