@@ -70,7 +70,7 @@ Local Ollama:
 ### Bootstrap and persistence
 
 - `app/bootstrap.py` configures logging, upgrades the database schema, validates and idempotently imports both bundled vocabulary files, creates missing LearningState rows, and activates the selected study level inside one serialized startup transaction. If any initialization step fails, it disposes the newly created Database/Engine before propagating the failure.
-- `app/db/migrations.py` owns the explicit sequential schema registry, currently version 4. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application. Schema v3 adds persistent per-level activation state; schema v4 adds per-instance active-review leases.
+- `app/db/migrations.py` owns the explicit sequential schema registry, currently version 5. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application. Schema v3 adds persistent per-level activation state; schema v4 adds per-instance active-review leases; schema v5 removes synthetic `demo_confusion` increments from FSRS aggregates while preserving the ReviewLog evidence used by the demo graph.
 - `app/config.py` loads the runtime `.env`, resolves relative SQLite paths from the writable runtime root, and owns all model, graph, reminder, and logging configuration.
 - `app/paths.py` separates read-only bundled resources from writable runtime state. Source execution keeps both at the repository root; a frozen executable reads vocabulary/config templates from `_MEIPASS` and writes database/log/config state under the user's local application-data directory.
 - Malformed environment values and unsafe model/graph/reminder configuration are rejected at startup: model endpoints must be absolute HTTP(S) URLs, thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
@@ -110,7 +110,7 @@ Local Ollama:
 - Relation labels are inferred from normalized weighted contributions, so custom weights cannot produce a label that contradicts the score formula.
 - `app/domain/clustering.py` uses connected components; clusters above eight words pass only their highest-weight core words to the LLM.
 - The Analysis list defines an explicit readable selected-item style; selection no longer renders dark/white text invisibly against the platform theme.
-- `scripts/create_demo_data.py` idempotently creates correlated errors for three groups. Latest deterministic demo result: 7 candidates, 5 edges, 3 clusters (`adapt/adopt/adept`, `economic/economical`, `complement/compliment`).
+- `scripts/create_demo_data.py` idempotently creates correlated ReviewLog errors for three groups without mutating LearningState/FSRS fields. Latest deterministic demo result: 7 candidates, 5 edges, 3 clusters (`adapt/adopt/adept`, `economic/economical`, `complement/compliment`).
 - `scripts/benchmark_confusion_graph.py` creates an ephemeral dense graph with 100 candidates, 100 synchronized errors per candidate, and 4,950 persisted edges; it asserts the exact result, runs three timed rebuilds, and fails if the median exceeds a configurable five-second budget. It never touches the runtime database.
 
 ### LLM and Embedding integration
@@ -139,6 +139,7 @@ Local Ollama:
 - Questions above 4,000 normalized characters are refused before any Provider call. Providers request at most 2,048 output tokens, ordinary answers are bounded to 4,000 characters, model names to 200 characters, and the Chat/Analysis text documents retain only 200/300 blocks respectively.
 - Chat keeps at most the four most recent successful in-session exchanges and applies a separate 6,000-character history budget before prompt construction. Failed, degraded, refused, and incomplete exchanges are never retained; history is intentionally memory-only and disappears when the application closes.
 - `ChatPanel` is reusable as both the full assistant page and a collapsible right-side review assistant. The compact panel captures a labeled snapshot of only the current word at send time, offers three quick questions, and passes at most 2,500 context characters through the centralized Prompt layer. Its input focus is outside review-shortcut scope.
+- Contextual help uses explicit small-model task prompts. Example questions request sentence meaning, in-sentence usage, and a substitution exercise. Memory questions prohibit invented etymology, roots, affixes, homophones, and letter stories. `app/domain/study_help.py` then deterministically derives the displayed example/meaning hook and cloze recall question from the captured card while retaining only the model's bounded scene visualization; weak model-generated hooks and generic study advice cannot reach the learner.
 
 ### Reminder and desktop lifecycle
 
@@ -184,10 +185,10 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 189 passed in 6.73s | 2026-08-22 |
+| Full pytest suite | 194 passed in 7.53s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 93 files already formatted | 2026-08-22 |
-| Mypy application/scripts check | exit code 0; 60 source files | 2026-08-22 |
+| Ruff format gate | 95 files already formatted | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 61 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
 | Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
 | Exact reminder wake-up | persisted Snooze and claimed-notification cooldowns expose one absolute 30-minute expiry; UI millisecond conversion is exact, non-negative, and Qt-bounded; restart evaluation reconstructs the same target; focused reminder/UI tests passed | 2026-08-22 |
@@ -211,25 +212,26 @@ Update this section after every material change. Never report a feature as verif
 | 100-candidate graph performance | 100 errors per candidate and all 4,950 edges: 0.932s, 0.907s, 0.913s; median 0.913s; exact one-cluster invariant passed | 2026-08-22 |
 | Locked dependency install | clean Python 3.13 virtual environment installed `requirements-dev.lock`; `pip check` passed; Python 3.11/win_amd64 wheel-resolution dry run passed | 2026-08-22 |
 | GitHub Actions workflow | Windows Python 3.11/3.13 matrix defined with current official v7 checkout/setup actions; local-equivalent full gate passed; hosted run pending remote configuration | 2026-08-22 |
-| Schema migration matrix | 7 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS mapping, v2→v3 level activation, v3→v4 review leases, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
+| Schema migration matrix | 8 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS mapping, v2→v3 level activation, v3→v4 review leases, v4→v5 demo-state repair plus successful four-choice rating persistence, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
 | Official FSRS-6 reference vectors | initial Again/Hard/Good/Easy plus five-review sequence passed against py-fsrs 6.3.2 | 2026-08-22 |
 | Deterministic randomized algorithm invariants | 6,000 checks passed | 2026-08-22 |
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup/shutdown smoke | prior 20-run lifecycle baseline plus five consecutive exit-code-0 runs after the split review/assistant UI; subprocess regression passed and no process remained | 2026-08-22 |
-| SQLite integrity and foreign keys | schema v4; 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations; no stale review leases | 2026-08-22 |
+| Offscreen startup/shutdown smoke | prior 20-run lifecycle baseline plus five consecutive post-workspace runs and the schema-v5 migration run exited 0 through the real close path; subprocess regression passed and no process remained | 2026-08-22 |
+| SQLite integrity and foreign keys | schema v5; 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations; no stale review leases | 2026-08-22 |
+| Runtime demo-state repair | pre-v5 backup created under ignored `data/backups`; six impossible reviewed-without-time states became zero; `adapt` retained exactly its one real correct review; 28 demo ReviewLogs remained; repaired `adept` and preserved `adapt` both produced valid FSRS schedules | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
 | Ollama embedding through cached provider | 2 vectors, dimension 768; cold 20.159s; cache rows 0→2→2 | 2026-08-22 |
 | Semantic graph rebuild | 7 candidates, 5 edges, 3 clusters; `embedding_available=true` | 2026-08-22 |
 | Structured cluster JSON and AI cache hit | first live result `cached=false`; second `cached=true`; Pydantic passed | 2026-08-22 |
-| Latest warm full local-AI validation | exit code 0 on schema v4 repeat startup; chat 2.611s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
-| Live contextual review answer | right-panel-equivalent `adapt` word/phonetic/meaning/example snapshot produced a non-degraded Chinese answer from `qwen2.5:3b`; model and application paths completed successfully | 2026-08-22 |
+| Latest warm full local-AI validation | exit code 0 on schema v5 repeat startup; chat 1.087s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
+| Live contextual review answer | right-panel-equivalent `adapt` memory request returned a non-degraded `qwen2.5:3b` scene wrapped by an exact stored example/meaning hook and deterministic `Students ____ quickly to new environments.` recall item; invented hook content was excluded | 2026-08-22 |
 | Live uncached bounded structured output | `accept/except` analysis under the 2,048-token Provider limit returned non-degraded schema-valid output for both words; 829 JSON characters | 2026-08-22 |
 | Frozen writable-path resolution | source/frozen/local-app-data/home-fallback/relative-database cases plus non-overwriting `.env.example` install passed | 2026-08-22 |
-| Windows onedir package | post-learning-workspace rebuild includes Windows-Toasts/WinRT binaries and distribution license metadata; isolated smoke created schema v4 with 4,611 words and `integrity_check=ok`, installed `.env.example`, left the package directory state-free, and the temporary runtime was removed | 2026-08-22 |
-| Unsigned Windows installer | Inno Setup 6.7.3 compiled the current `CET-Agent-Setup-0.1.0.exe` (44.70 MiB, SHA-256 `CAE17E79AD36B7E99410312EFB4BA7DF9E6371F51326600B099202E7217C5D62`, intentionally `NotSigned`). The unchanged current-user install/uninstall flow previously passed executable/shortcut/registry creation, installed smoke, and byte-for-byte learning-data preservation | 2026-08-22 |
+| Windows onedir package | schema-v5/grounded-memory rebuild includes Windows-Toasts/WinRT binaries and distribution license metadata; isolated smoke exited 0, created schema v5 with 4,611 words and `integrity_check=ok`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
+| Unsigned Windows installer | Inno Setup 6.7.3 compiled the current `CET-Agent-Setup-0.1.0.exe` (44.71 MiB, SHA-256 `1B24A0755FBCB7481E473427094456A8C5BCABE9282FE149CCDECB18ADF5C83C`, intentionally `NotSigned`). The unchanged current-user install/uninstall flow previously passed executable/shortcut/registry creation, installed smoke, and byte-for-byte learning-data preservation | 2026-08-22 |
 | Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; Snooze then immediate close exited with zero process/lease remnants; a controlled 15-second local Provider proved close began with two live workers before the response and exited automatically after completion; final installed build visibly rendered the actionable in-app reminder while the matching native Toast existed in Windows history | 2026-08-22 |
 
 Baseline commands:
@@ -257,7 +259,7 @@ python main.py
 
 ### Product acceptance
 
-- Automated, static, local-AI, source-smoke, frozen-smoke, and installer-build validation is complete for the new learning workspace. A final visible Windows acceptance pass should still cover splitter resizing/collapse, long Chinese option wrapping, correct/wrong choice feedback, the five-word continuation button after an actually completed day, and asking the embedded assistant while advancing cards.
+- Automated, static, local-AI, source-smoke, frozen-smoke, and installer-build validation is complete for the schema-v5/grounded-memory build. Visible Windows acceptance should retest a correct four-choice answer followed by each 1/2/3/4 rating, the “怎么记” response while advancing cards, splitter resizing/collapse, long Chinese option wrapping, wrong-choice feedback, and the five-word continuation button after an actually completed day.
 
 ### Deferred delivery work
 
@@ -316,6 +318,8 @@ python main.py
 48. Deterministic recognition quiz: the correct meaning and all distractors come from validated local vocabulary, with stable ranking/shuffling and a safe active-recall fallback. The LLM may explain a card but never creates or grades its choices.
 49. Voluntary staged continuation: extra learning is an explicit five-card transaction over untouched future cards for one selected level. Existing due work blocks the unlock, reviewed cards are immutable, and completing the current pack is required before requesting another.
 50. Snapshot contextual assistance: the embedded assistant captures only the current ReviewItem when Send is pressed, labels that word in the transcript, bounds context in the Prompt layer, and shares the existing Provider/routing rules without sharing a worker or history with the full assistant page.
+51. Synthetic evidence isolation: `demo_confusion` ReviewLogs may drive the repeatable analysis demo, but they are not user reviews and must never alter LearningState aggregates or FSRS card state. Schema v5 repairs already polluted databases without deleting graph evidence.
+52. Grounded small-model memory help: the local model may visualize only the supplied example scene. The application deterministically owns the displayed example/meaning hook and cloze recall item, so a 3B model cannot present invented etymology, roots, homophones, or empty repetition advice as learning facts.
 
 ## 8. Development constraints
 

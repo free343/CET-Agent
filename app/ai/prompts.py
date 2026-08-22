@@ -8,9 +8,18 @@ from collections.abc import Sequence
 from app.ai.conversation import ChatExchange, bounded_chat_history
 from app.ai.llm_provider import Message
 from app.ai.schemas import ClusterAnalysis
+from app.domain.study_help import is_memory_help_question
 
 PROMPT_VERSION = "cluster-v1"
 MAX_CHAT_CONTEXT_CHARACTERS = 2_500
+
+_EXAMPLE_QUESTION_MARKERS = (
+    "例句",
+    "句子",
+    "用法",
+    "example",
+    "usage",
+)
 
 VOCABULARY_SYSTEM_PROMPT = """You are a CET vocabulary learning assistant.
 
@@ -74,10 +83,46 @@ def chat_messages(
     current_question = question
     if context:
         bounded_context = context.strip()[:MAX_CHAT_CONTEXT_CHARACTERS]
+        task_instruction = _context_task_instruction(question)
         current_question = (
             "以下是学习界面提供的当前词卡上下文，只用于回答本次问题；"
             "不要据此推断其他学习记录。\n"
+            f"{task_instruction}\n\n"
             f"CONTEXT:\n{bounded_context}\n\nQUESTION:\n{question}"
         )
     messages.append({"role": "user", "content": current_question})
     return messages
+
+
+def _context_task_instruction(question: str) -> str:
+    normalized = question.casefold()
+    if is_memory_help_question(question):
+        return (
+            "TASK: MEMORY_AID\n"
+            "只使用 CONTEXT 中的单词、释义和例句生成助记提示。"
+            "禁止编造词源、词根、前后缀或学习经历，禁止使用谐音、发音联想、"
+            "字形拆分或字母故事。不要给出‘多读几遍’、"
+            "‘反复背诵’一类空泛建议，也不得只说“发音联想到释义”。"
+            "严格按以下四行作答，每行一句：\n"
+            "记忆钩子：逐字复制 CONTEXT 例句中含目标词的连续英文片段，"
+            "放在英文引号内，再写等号和 CONTEXT 已给出的对应中文义；"
+            "不得添加例句里不存在的英文或自行解释构词。\n"
+            "场景联想：把该英文短语变成一个包含人物、动作和结果的画面。\n"
+            "主动回忆：把目标词挖空，给出一道中文提示到英文填空的十秒自测题，"
+            "不要在空格旁泄露答案。\n"
+            "误区提醒：指出助记联想不等于词源；若能从 CONTEXT 看出搭配，"
+            "再提醒该搭配边界。"
+        )
+    if any(marker in normalized for marker in _EXAMPLE_QUESTION_MARKERS):
+        return (
+            "TASK: EXAMPLE_EXPLANATION\n"
+            "只依据 CONTEXT 解释例句，不补写不存在的语境。严格按以下三行作答：\n"
+            "例句句意：给出自然、完整的中文句意。\n"
+            "本句用法：说明目标词在本句中的含义、词性和搭配。\n"
+            "替换练习：写一个同义改写或同结构短句，并说明差异。"
+        )
+    return (
+        "TASK: CONTEXTUAL_VOCABULARY_HELP\n"
+        "先直接回答问题，再用 CONTEXT 中的一项事实支持答案；"
+        "不确定的词源、搭配或辨析必须明确说明不确定，不能编造。"
+    )

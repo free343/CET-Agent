@@ -23,6 +23,7 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 - Pydantic 结构化输出、一次 JSON 重试、安全降级与 AI 结果缓存；
 - AI 输入、Provider 输出 token、结构化字段/列表和界面文本块均有显式容量上限；
 - AI 助手支持有界的会话内追问：最多保留最近 4 组成功问答和 6,000 个历史字符，关闭应用后自动清空；
+- 复习页“怎么记”使用受约束的小模型场景联想，例句—释义钩子与挖空回忆题由当前词卡确定性生成，模型编造的词根、谐音或空泛建议不会直接展示；
 - 独立 Embedding Provider 及 SQLite 缓存；
 - 可解释的确定性问题路由：本地回答、确认高级模型或直接拒绝越界请求；
 - demo 学习历史和 pytest 核心测试。
@@ -135,7 +136,7 @@ EMBEDDING_BASE_URL=http://127.0.0.1:11434
 EMBEDDING_MODEL=nomic-embed-text
 ```
 
-先在 Ollama 中准备对应模型，再启动 CET-Agent。Ollama chat 使用 `/api/chat`，Embedding 使用 `/api/embed`；结构化错词分析将 Pydantic JSON Schema 传入请求并在本地再次验证。普通词汇问答会在当前界面内携带最多 4 组完整成功问答作为追问上下文，但不会把对话写入数据库。复习页右侧助手只携带发送瞬间的当前词卡快照，回答会标注关联词；上下文在 Prompt 层限制为 2,500 字符，模型不能借此读取其他学习记录。模型未启动、模型不存在、网络错误或非法 JSON 都会显示可恢复的降级结果。
+先在 Ollama 中准备对应模型，再启动 CET-Agent。Ollama chat 使用 `/api/chat`，Embedding 使用 `/api/embed`；结构化错词分析将 Pydantic JSON Schema 传入请求并在本地再次验证。普通词汇问答会在当前界面内携带最多 4 组完整成功问答作为追问上下文，但不会把对话写入数据库。复习页右侧助手只携带发送瞬间的当前词卡快照，回答会标注关联词；上下文在 Prompt 层限制为 2,500 字符，模型不能借此读取其他学习记录。“怎么记”只保留模型基于例句生成的场景，例句—释义钩子和英文挖空题由程序从词卡事实生成，以弥补 3B 模型在开放式助记任务上的能力限制。模型未启动、模型不存在、网络错误或非法 JSON 都会显示可恢复的降级结果。
 
 Windows 可直接使用本机 Ollama 可执行文件下载并验证：
 

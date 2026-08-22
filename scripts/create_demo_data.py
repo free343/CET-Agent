@@ -12,7 +12,7 @@ if __package__ in (None, ""):
 from sqlalchemy import func, select
 
 from app.bootstrap import initialize_database
-from app.db.models import LearningState, ReviewLog, Word
+from app.db.models import ReviewLog, Word
 from app.services.analysis_service import AnalysisService
 from app.utils.datetime_utils import utc_now
 
@@ -41,11 +41,6 @@ def create_demo_data() -> None:
                 for group_index, group in enumerate(GROUPS):
                     for word_text in group:
                         word = all_words[word_text]
-                        state = session.scalar(
-                            select(LearningState).where(
-                                LearningState.word_id == word.id
-                            )
-                        )
                         for occurrence in range(4):
                             reviewed_at = now - timedelta(
                                 days=occurrence * 4 + group_index,
@@ -67,10 +62,6 @@ def create_demo_data() -> None:
                                     scheduled_days=10 / (24 * 60),
                                 )
                             )
-                        if state is not None:
-                            state.review_count += 4
-                            state.error_count += 4
-                            state.lapse_count += 4
         result = AnalysisService(database).rebuild_confusion_graph()
         print(
             f"Demo ready: candidates={result.candidate_count}, "

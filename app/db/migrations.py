@@ -60,11 +60,89 @@ def _add_reminder_review_leases(connection: Connection) -> None:
     ReminderReviewLease.__table__.create(bind=connection, checkfirst=True)
 
 
+def _repair_demo_learning_states(connection: Connection) -> None:
+    """Remove synthetic graph-demo increments from persisted FSRS state.
+
+    ``demo_confusion`` rows intentionally remain in ``review_logs`` so the
+    repeatable analysis demo still has evidence. They are not user reviews and
+    therefore must not contribute to the card state used by FSRS.
+    """
+    inspector = inspect(connection)
+    tables = set(inspector.get_table_names())
+    if not {"learning_states", "review_logs"}.issubset(tables):
+        return
+    learning_columns = {
+        column["name"] for column in inspector.get_columns("learning_states")
+    }
+    review_columns = {column["name"] for column in inspector.get_columns("review_logs")}
+    required_learning_columns = {
+        "word_id",
+        "review_count",
+        "error_count",
+        "lapse_count",
+        "last_review_at",
+        "fsrs_state",
+        "fsrs_step",
+    }
+    if not required_learning_columns.issubset(learning_columns) or not {
+        "word_id",
+        "question_type",
+    }.issubset(review_columns):
+        return
+
+    demo_count = (
+        "(SELECT COUNT(*) FROM review_logs AS demo_logs "
+        "WHERE demo_logs.word_id = learning_states.word_id "
+        "AND demo_logs.question_type = 'demo_confusion')"
+    )
+    connection.execute(
+        text(
+            f"""
+            UPDATE learning_states
+            SET review_count = CASE
+                    WHEN review_count > {demo_count}
+                    THEN review_count - {demo_count}
+                    ELSE 0
+                END,
+                error_count = CASE
+                    WHEN error_count > {demo_count}
+                    THEN error_count - {demo_count}
+                    ELSE 0
+                END,
+                lapse_count = CASE
+                    WHEN lapse_count > {demo_count}
+                    THEN lapse_count - {demo_count}
+                    ELSE 0
+                END
+            WHERE {demo_count} > 0
+            """
+        )
+    )
+    connection.execute(
+        text(
+            """
+            UPDATE learning_states
+            SET fsrs_state = 1,
+                fsrs_step = 0
+            WHERE review_count = 0
+              AND last_review_at IS NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM review_logs AS demo_logs
+                  WHERE demo_logs.word_id = learning_states.word_id
+                    AND demo_logs.question_type = 'demo_confusion'
+              )
+            """
+        )
+    )
+
+
 MIGRATIONS: dict[int, Migration] = {
     1: _create_initial_schema,
     2: _add_fsrs_card_state,
     3: _add_study_level_activation,
     4: _add_reminder_review_leases,
+    5: _repair_demo_learning_states,
 }
 CURRENT_SCHEMA_VERSION = max(MIGRATIONS)
 

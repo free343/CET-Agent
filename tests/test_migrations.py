@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
-from sqlalchemy import inspect, select, text
+from sqlalchemy import func, inspect, select, text
 
 from app.db.database import Database
 from app.db.migrations import (
@@ -9,7 +11,10 @@ from app.db.migrations import (
     SchemaMigrationError,
     upgrade_schema,
 )
-from app.db.models import Base, Word, WordLevel
+from app.db.models import Base, LearningState, ReviewLog, Word, WordLevel
+from app.domain.fsrs_scheduler import Rating
+from app.services.review_service import ReviewService
+from app.utils.datetime_utils import UTC
 
 
 def make_database(tmp_path, name: str = "migration.db") -> Database:
@@ -140,6 +145,150 @@ def test_version_three_database_adds_reminder_review_leases(tmp_path) -> None:
         assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
         assert "reminder_review_leases" in inspect(database.engine).get_table_names()
         assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
+def test_version_four_repairs_demo_counts_without_removing_demo_history(
+    tmp_path,
+) -> None:
+    database = make_database(tmp_path)
+    reviewed_at = datetime(2026, 8, 22, 4, 0, tzinfo=UTC)
+    try:
+        Base.metadata.create_all(database.engine)
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 4)"
+            )
+        with database.session() as session:
+            demo_only = Word(
+                word="adept",
+                meaning="熟练的",
+                level=WordLevel.CET4,
+                learning_state=LearningState(
+                    next_review_at=reviewed_at,
+                    review_count=4,
+                    error_count=4,
+                    lapse_count=4,
+                    fsrs_state=2,
+                    fsrs_step=None,
+                ),
+            )
+            real_and_demo = Word(
+                word="adapt",
+                meaning="适应",
+                level=WordLevel.CET4,
+                learning_state=LearningState(
+                    next_review_at=reviewed_at + timedelta(days=2),
+                    last_review_at=reviewed_at,
+                    review_count=5,
+                    correct_count=1,
+                    error_count=4,
+                    lapse_count=4,
+                    fsrs_state=2,
+                    fsrs_step=None,
+                ),
+            )
+            session.add_all((demo_only, real_and_demo))
+            session.flush()
+            session.execute(
+                text(
+                    "UPDATE learning_states SET fsrs_step = NULL "
+                    "WHERE word_id IN (:demo_id, :mixed_id)"
+                ),
+                {"demo_id": demo_only.id, "mixed_id": real_and_demo.id},
+            )
+            for word in (demo_only, real_and_demo):
+                for index in range(4):
+                    session.add(
+                        ReviewLog(
+                            word_id=word.id,
+                            reviewed_at=reviewed_at - timedelta(days=index),
+                            rating=1,
+                            is_correct=False,
+                            response_time_ms=1_000,
+                            question_type="demo_confusion",
+                            previous_stability=1.0,
+                            new_stability=0.5,
+                            previous_difficulty=5.0,
+                            new_difficulty=6.0,
+                            scheduled_days=0.1,
+                        )
+                    )
+            session.add(
+                ReviewLog(
+                    word_id=real_and_demo.id,
+                    reviewed_at=reviewed_at,
+                    rating=3,
+                    is_correct=True,
+                    response_time_ms=800,
+                    question_type="meaning_recall",
+                    previous_stability=0.4,
+                    new_stability=2.0,
+                    previous_difficulty=5.0,
+                    new_difficulty=5.0,
+                    scheduled_days=2.0,
+                )
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+
+        with database.session() as session:
+            demo_state = session.scalar(
+                select(LearningState).join(Word).where(Word.word == "adept")
+            )
+            mixed_state = session.scalar(
+                select(LearningState).join(Word).where(Word.word == "adapt")
+            )
+            assert demo_state is not None
+            assert mixed_state is not None
+            assert (
+                demo_state.review_count,
+                demo_state.error_count,
+                demo_state.lapse_count,
+                demo_state.fsrs_state,
+                demo_state.fsrs_step,
+            ) == (0, 0, 0, 1, 0)
+            assert demo_state.last_review_at is None
+            assert (
+                mixed_state.review_count,
+                mixed_state.correct_count,
+                mixed_state.error_count,
+                mixed_state.lapse_count,
+                mixed_state.fsrs_state,
+                mixed_state.fsrs_step,
+            ) == (1, 1, 0, 0, 2, None)
+            assert mixed_state.last_review_at == reviewed_at
+            assert session.scalar(select(func.count(ReviewLog.id))) == 9
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+
+        submission = ReviewService(database).submit_review(
+            demo_only.id,
+            Rating.GOOD,
+            900,
+            question_type="meaning_choice_correct",
+            user_answer="熟练的",
+            reviewed_at=reviewed_at + timedelta(hours=1),
+        )
+        assert submission.word_id == demo_only.id
+        assert submission.is_correct is True
+        with database.session() as session:
+            repaired_and_reviewed = session.scalar(
+                select(LearningState).where(LearningState.word_id == demo_only.id)
+            )
+            assert repaired_and_reviewed is not None
+            assert repaired_and_reviewed.review_count == 1
+            assert repaired_and_reviewed.last_review_at == reviewed_at + timedelta(
+                hours=1
+            )
     finally:
         database.dispose()
 

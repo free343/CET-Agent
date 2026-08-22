@@ -259,3 +259,32 @@ def test_contextual_chat_passes_only_explicit_word_context(database) -> None:
     assert "word=adapt" in prompt
     assert "meaning=适应；改编" in prompt
     assert "这个词怎么记？" in prompt
+
+
+def test_contextual_memory_answer_is_grounded_by_the_word_card(database) -> None:
+    provider = FakeProvider(
+        [
+            (
+                "记忆钩子：adapt 的 a 是适应。\n"
+                "场景联想：学生进入新学校后调整习惯，很快融入新环境。\n"
+                "主动回忆：多读几遍。\n"
+                "误区提醒：这是词根。"
+            )
+        ]
+    )
+
+    answer = AIService(database, provider).ask(
+        "这个词如何记忆？",
+        context=(
+            "word=adapt\n"
+            "phonetic=/əˈdæpt/\n"
+            "meaning=适应；改编\n"
+            "example=Students adapt quickly to new environments."
+        ),
+    )
+
+    assert "adapt 的 a" not in answer.text
+    assert "多读几遍" not in answer.text
+    assert "“Students adapt quickly to new environments.” = 适应；改编" in answer.text
+    assert "Students ____ quickly to new environments." in answer.text
+    assert "学生进入新学校后调整习惯，很快融入新环境。" in answer.text

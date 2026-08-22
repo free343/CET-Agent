@@ -30,6 +30,7 @@ from app.domain.query_routing import (
     QueryRoute,
     QueryRoutingPolicy,
 )
+from app.domain.study_help import ground_contextual_memory_answer
 from app.services.analysis_service import ConfusionCluster
 from app.utils.text_utils import stable_json_hash
 
@@ -80,7 +81,10 @@ class AIService:
                 degraded=True,
             )
         try:
-            text = provider.generate(chat_messages(question, history, context=context))
+            generated = provider.generate(
+                chat_messages(question, history, context=context)
+            )
+            text = ground_contextual_memory_answer(question, context, generated)
             return AIAnswer(
                 text=self._bounded_chat_text(text),
                 confidence=assessment.confidence,

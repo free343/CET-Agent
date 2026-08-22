@@ -10,6 +10,7 @@ htmlcov/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/backups/
 logs/
 build/
 dist/
