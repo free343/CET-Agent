@@ -23,6 +23,7 @@ from app.config import Settings
         },
         {"reminder_start_time": time(23, 0), "reminder_end_time": time(8, 0)},
         {"reminder_cooldown_minutes": 0},
+        {"study_level": "TOEFL"},
     ),
 )
 def test_settings_reject_unsafe_values(overrides: dict[str, object]) -> None:

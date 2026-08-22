@@ -8,7 +8,7 @@ from datetime import datetime, time, timedelta
 from sqlalchemy import case, func, select
 
 from app.db.database import Database
-from app.db.models import LearningState, ReviewLog, Word
+from app.db.models import LearningState, ReviewLog, Word, WordLevel
 from app.utils.datetime_utils import ensure_utc, utc_now
 
 
@@ -35,30 +35,41 @@ def _local_day_bounds_utc(now: datetime) -> tuple[datetime, datetime]:
 
 
 class LearningService:
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self, database: Database, study_level: WordLevel | str | None = None
+    ) -> None:
         self.database = database
+        self.study_level = WordLevel(study_level) if study_level is not None else None
 
     def dashboard_stats(self, now: datetime | None = None) -> DashboardStats:
         checked_at = ensure_utc(now or utc_now())
         today_start, tomorrow_start = _local_day_bounds_utc(checked_at)
         seven_days_ago = today_start - timedelta(days=6)
         thirty_days_ago = checked_at - timedelta(days=30)
+        level_filter = (
+            (Word.level == self.study_level,)
+            if self.study_level is not None
+            else ()
+        )
 
         with self.database.session() as session:
             due_count = int(
                 session.scalar(
-                    select(func.count(LearningState.id)).where(
-                        LearningState.next_review_at <= checked_at
-                    )
+                    select(func.count(LearningState.id))
+                    .join(Word, LearningState.word_id == Word.id)
+                    .where(LearningState.next_review_at <= checked_at, *level_filter)
                 )
                 or 0
             )
             today_completed = int(
                 session.scalar(
-                    select(func.count(ReviewLog.id)).where(
+                    select(func.count(ReviewLog.id))
+                    .join(Word, ReviewLog.word_id == Word.id)
+                    .where(
                         ReviewLog.reviewed_at >= today_start,
                         ReviewLog.reviewed_at < tomorrow_start,
                         ReviewLog.reviewed_at <= checked_at,
+                        *level_filter,
                     )
                 )
                 or 0
@@ -67,17 +78,23 @@ class LearningService:
                 select(
                     func.count(ReviewLog.id),
                     func.sum(case((ReviewLog.is_correct.is_(True), 1), else_=0)),
-                ).where(
+                )
+                .join(Word, ReviewLog.word_id == Word.id)
+                .where(
                     ReviewLog.reviewed_at >= seven_days_ago,
                     ReviewLog.reviewed_at <= checked_at,
+                    *level_filter,
                 )
             ).one()
             accuracy = (int(seven_correct or 0) / int(seven_total or 1)) * 100
 
             recent_reviews = session.scalars(
-                select(ReviewLog.reviewed_at).where(
+                select(ReviewLog.reviewed_at)
+                .join(Word, ReviewLog.word_id == Word.id)
+                .where(
                     ReviewLog.reviewed_at >= checked_at - timedelta(days=120),
                     ReviewLog.reviewed_at <= checked_at,
+                    *level_filter,
                 )
             ).all()
             active_days = {reviewed.astimezone().date() for reviewed in recent_reviews}
@@ -94,6 +111,7 @@ class LearningService:
                     ReviewLog.reviewed_at >= thirty_days_ago,
                     ReviewLog.reviewed_at <= checked_at,
                     ReviewLog.is_correct.is_(False),
+                    *level_filter,
                 )
                 .group_by(Word.id)
                 .order_by(func.count(ReviewLog.id).desc(), Word.word.asc())

@@ -15,6 +15,7 @@ from app.db.models import (
     LearningState,
     ReviewLog,
     Word,
+    WordLevel,
 )
 
 
@@ -45,9 +46,12 @@ class LearningStateRepository:
         statement = select(LearningState).where(LearningState.word_id == word_id).with_for_update()
         return self.session.scalar(statement)
 
-    def due_query(self, now: datetime) -> Select[tuple[LearningState]]:
-        return (
+    def due_query(
+        self, now: datetime, study_level: WordLevel | None = None
+    ) -> Select[tuple[LearningState]]:
+        statement = (
             select(LearningState)
+            .join(Word, LearningState.word_id == Word.id)
             .options(joinedload(LearningState.word))
             .where(LearningState.next_review_at <= now)
             .order_by(
@@ -56,6 +60,9 @@ class LearningStateRepository:
                 LearningState.error_count.desc(),
             )
         )
+        if study_level is not None:
+            statement = statement.where(Word.level == study_level)
+        return statement
 
 
 class ReviewLogRepository:

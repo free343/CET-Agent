@@ -20,6 +20,7 @@ class SettingsPage(QWidget):
         card.setObjectName("Card")
         form = QFormLayout(card)
         form.setContentsMargins(24, 22, 24, 22)
+        form.addRow("学习级别", QLabel(settings.study_level))
         form.addRow("LLM Provider", QLabel(settings.llm_provider))
         form.addRow("本地模型", QLabel(settings.llm_model))
         form.addRow("服务地址", QLabel(settings.llm_base_url))

@@ -11,7 +11,7 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 ## 已实现的 MVP
 
 - PySide6 桌面端：学习概览、单词复习、易混词分析、AI 助手和设置；
-- SQLite + SQLAlchemy 2.x 本地数据层，显式版本迁移、首次启动自动建表并幂等导入示例词汇；
+- SQLite + SQLAlchemy 2.x 本地数据层，显式版本迁移、首次启动自动建表并幂等导入经验证的开放词库；
 - 官方 FSRS-6 调度器，维护 Difficulty、Stability、学习阶段与下一次复习时间；
 - 完整 ReviewLog：评分、正确性、耗时、题型、答案和调度前后状态；
 - 确定性复习队列、统计和主动提醒策略，支持 30 分钟 Snooze；
@@ -97,7 +97,15 @@ macOS/Linux 激活命令为 `source .venv/bin/activate`，复制配置可使用 
 python main.py
 ```
 
-第一次运行会自动创建 `data/cet_agent.db`，按顺序升级到当前 schema 版本、导入 `data/sample_words.csv`，并为每个词建立默认 `LearningState`。升级和导入均可重复执行；升级失败会回滚，数据库版本高于应用支持范围时会拒绝启动，避免旧程序误写新结构。
+第一次运行会自动创建 `data/cet_agent.db`，按顺序升级到当前 schema 版本，并导入 13 条人工示例词和 4,598 条开放 CET 词汇。每个级别按词频每天最多释放 20 个新词，避免首次启动形成数千条积压；`STUDY_LEVEL=CET4` 或 `CET6` 决定复习队列、提醒和仪表盘统计的范围。升级和导入均可重复执行；升级失败会回滚，数据库版本高于应用支持范围时会拒绝启动，避免旧程序误写新结构。
+
+开放词库由固定版本的 ECDICT 和 FreeDict eng-zho 交叉构建。构建器会下载后核验来源哈希，只保留同时具有开放双语词条、音标和 CET 标签的单词，再生成可审计的来源清单：
+
+```powershell
+python scripts/build_open_vocabulary.py
+```
+
+生成结果为 `data/cet_vocabulary_open.csv`，来源版本、哈希、行数和生成文件哈希记录在同名 `.provenance.json` 中。数据的归属、修改说明和 CC BY-SA 3.0 分发条款见 `data/OPEN_VOCABULARY_LICENSE.md`；第三方声明见 `THIRD_PARTY_NOTICES.md`。
 
 复习快捷键：
 
@@ -187,8 +195,8 @@ app/
 ├── services/        # 业务用例与事务边界
 ├── ui/              # PySide6 页面与组件
 └── utils/           # UTC 与稳定 hash 工具
-data/                # 示例词库；运行时 SQLite 被 gitignore
-scripts/             # demo 数据生成
+data/                # 人工示例词、开放 CET 词库及可追溯来源；运行时 SQLite 被 gitignore
+scripts/             # 词库构建、demo 数据和本地 AI 验证
 tests/               # 核心算法和服务测试
 ```
 

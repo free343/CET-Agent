@@ -30,9 +30,9 @@ def run(*, smoke_test: bool = False) -> int:
         llm_provider = create_llm_provider(settings)
         ai_service = AIService(database, llm_provider)
         embedding_provider = create_embedding_provider(settings, database)
-        review_service = ReviewService(database)
+        review_service = ReviewService(database, settings.study_level)
         window = MainWindow(
-            LearningService(database),
+            LearningService(database, settings.study_level),
             review_service,
             AnalysisService(database, embedding_provider),
             ai_service,

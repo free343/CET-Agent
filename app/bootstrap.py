@@ -17,7 +17,13 @@ def initialize_database(app_settings: Settings = settings) -> Database:
     database = Database(app_settings.database_url)
     schema_version = database.upgrade_schema()
     with database.session() as session:
-        inserted = seed_words(session, PROJECT_ROOT / "data" / "sample_words.csv")
+        inserted = sum(
+            seed_words(session, source_path)
+            for source_path in (
+                PROJECT_ROOT / "data" / "sample_words.csv",
+                PROJECT_ROOT / "data" / "cet_vocabulary_open.csv",
+            )
+        )
         missing_states = ensure_learning_states(session)
     logger.info(
         "Database initialized; schema_version=%s inserted_words=%s created_states=%s",

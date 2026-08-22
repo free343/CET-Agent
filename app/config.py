@@ -51,6 +51,7 @@ def _database_url() -> str:
 @dataclass(frozen=True, slots=True)
 class Settings:
     database_url: str = _database_url()
+    study_level: str = os.getenv("STUDY_LEVEL", "CET4").strip().upper()
     llm_provider: str = os.getenv("LLM_PROVIDER", "ollama")
     llm_model: str = os.getenv("LLM_MODEL", "qwen2.5:3b")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "http://127.0.0.1:11434")
@@ -82,6 +83,8 @@ class Settings:
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
     def __post_init__(self) -> None:
+        if self.study_level not in {"CET4", "CET6"}:
+            raise ValueError("STUDY_LEVEL must be CET4 or CET6")
         if not math.isfinite(self.confusion_threshold) or not (
             0.0 <= self.confusion_threshold <= 1.0
         ):

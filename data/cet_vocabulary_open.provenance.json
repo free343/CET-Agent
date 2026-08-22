@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "artifact": {
+    "file": "cet_vocabulary_open.csv",
+    "sha256": "1afc9925361b58c398ab35ef1f10fc2d4b80b4f3c30ee5be542fc9da2bb9a16f",
+    "rows": 4598,
+    "level_counts": {
+      "CET4": 3320,
+      "CET6": 1278
+    },
+    "daily_new_words_per_level": 20,
+    "excluded_curated_overrides": 13
+  },
+  "license": {
+    "spdx": "CC-BY-SA-3.0",
+    "url": "https://creativecommons.org/licenses/by-sa/3.0/"
+  },
+  "sources": [
+    {
+      "name": "ECDICT",
+      "url": "https://raw.githubusercontent.com/skywind3000/ECDICT/bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b/ecdict.csv",
+      "revision": "bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b",
+      "sha256": "1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf",
+      "license": "MIT",
+      "usage": "headwords, CET tags, frequency ranks, IPA, and Chinese meanings"
+    },
+    {
+      "name": "FreeDict eng-zho",
+      "url": "https://download.freedict.org/dictionaries/eng-zho/2025.11.23/freedict-eng-zho-2025.11.23.src.tar.xz",
+      "version": "2025.11.23",
+      "sha512": "25aed0f1d7de68919aa9da1ba92d67f566ae4ea81660f42071c81fc21e56d4b210d61df379315678648c45ca7e52c4a0ba2eec009fbaab7c72e7472489e1fc4c",
+      "license": "CC-BY-SA-3.0",
+      "usage": "independent open-dictionary headword and bilingual-entry validation"
+    }
+  ]
+}

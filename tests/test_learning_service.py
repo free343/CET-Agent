@@ -46,3 +46,14 @@ def test_dashboard_ignores_future_review_logs(database, word_id) -> None:
     assert stats.seven_day_accuracy == 0.0
     assert stats.learning_streak == 0
     assert stats.high_frequency_wrong == ()
+
+
+def test_dashboard_is_filtered_by_study_level(database, word_id) -> None:
+    with database.session() as session:
+        cet6_word = Word(word="adept", meaning="熟练的", level=WordLevel.CET6)
+        cet6_word.learning_state = LearningState(next_review_at=NOW)
+        session.add(cet6_word)
+
+    assert LearningService(database, WordLevel.CET4).dashboard_stats(NOW).due_count == 1
+    assert LearningService(database, WordLevel.CET6).dashboard_stats(NOW).due_count == 1
+    assert LearningService(database).dashboard_stats(NOW).due_count == 2

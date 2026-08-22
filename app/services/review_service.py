@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 
 from app.db.database import Database
-from app.db.models import LearningState, ReviewLog, WordLevel
+from app.db.models import LearningState, ReviewLog, Word, WordLevel
 from app.db.repositories import LearningStateRepository, ReviewLogRepository
 from app.domain.fsrs_scheduler import Rating, ReviewScheduleResult, schedule_review
 from app.utils.datetime_utils import ensure_utc, utc_now
@@ -40,15 +40,20 @@ class ReviewSubmission:
 
 
 class ReviewService:
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self, database: Database, study_level: WordLevel | str | None = None
+    ) -> None:
         self.database = database
+        self.study_level = WordLevel(study_level) if study_level is not None else None
 
     def get_due_words(self, limit: int = 30, now: datetime | None = None) -> list[ReviewItem]:
         checked_at = ensure_utc(now or utc_now())
         safe_limit = max(1, min(limit, 200))
         with self.database.session() as session:
             states = session.scalars(
-                LearningStateRepository(session).due_query(checked_at).limit(safe_limit)
+                LearningStateRepository(session)
+                .due_query(checked_at, self.study_level)
+                .limit(safe_limit)
             ).all()
             return [
                 ReviewItem(
@@ -70,8 +75,15 @@ class ReviewService:
         with self.database.session() as session:
             return int(
                 session.scalar(
-                    select(func.count(LearningState.id)).where(
-                        LearningState.next_review_at <= checked_at
+                    select(func.count(LearningState.id))
+                    .join(Word, LearningState.word_id == Word.id)
+                    .where(
+                        LearningState.next_review_at <= checked_at,
+                        *(
+                            (Word.level == self.study_level,)
+                            if self.study_level is not None
+                            else ()
+                        ),
                     )
                 )
                 or 0

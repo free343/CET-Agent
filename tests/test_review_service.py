@@ -7,7 +7,7 @@ from threading import Barrier
 import pytest
 from sqlalchemy import func, select
 
-from app.db.models import LearningState, ReviewLog
+from app.db.models import LearningState, ReviewLog, Word, WordLevel
 from app.domain.fsrs_scheduler import Rating
 from app.services.review_service import ReviewService
 from app.utils.datetime_utils import UTC
@@ -56,6 +56,22 @@ def test_again_records_error_and_lapse(database, word_id) -> None:
         assert state is not None
         assert state.error_count == 1
         assert state.lapse_count == 1
+
+
+def test_review_queue_and_count_are_filtered_by_study_level(database, word_id) -> None:
+    with database.session() as session:
+        cet6_word = Word(word="adept", meaning="熟练的", level=WordLevel.CET6)
+        cet6_word.learning_state = LearningState(next_review_at=NOW)
+        session.add(cet6_word)
+
+    cet4 = ReviewService(database, WordLevel.CET4)
+    cet6 = ReviewService(database, WordLevel.CET6)
+
+    assert [item.word for item in cet4.get_due_words(now=NOW)] == ["adapt"]
+    assert [item.word for item in cet6.get_due_words(now=NOW)] == ["adept"]
+    assert cet4.due_count(NOW) == 1
+    assert cet6.due_count(NOW) == 1
+    assert ReviewService(database).due_count(NOW) == 2
 
 
 def test_submit_review_rejects_non_monotonic_timestamp(database, word_id) -> None:

@@ -49,7 +49,7 @@ Do not add a framework or abstraction unless the current boundary actually needs
 - Main entry point: `main.py`.
 - Runtime database: `data/cet_agent.db` (ignored by source control rules).
 - Ollama model storage observed on this machine: `D:\model`.
-- Sample vocabulary: `data/sample_words.csv`, currently 13 words.
+- Vocabulary: 13 curated demo words in `data/sample_words.csv` plus 4,598 validated open-data words in `data/cet_vocabulary_open.csv` (3,320 CET4 and 1,278 CET6); the two files do not overlap.
 - Logs: `logs/cet-agent.log`, rotating and never intended to contain secrets.
 - Detailed Phase 1–9 audit snapshot: `docs/handoff/CET_AGENT_HANDOFF.md`. It is historical context; this `AGENTS.md` is authoritative when the two differ.
 
@@ -67,20 +67,23 @@ Local Ollama:
 
 ### Bootstrap and persistence
 
-- `app/bootstrap.py` configures logging, upgrades the database schema, imports seed words, and creates missing LearningState rows.
+- `app/bootstrap.py` configures logging, upgrades the database schema, validates and idempotently imports both bundled vocabulary files, and creates missing LearningState rows.
 - `app/db/migrations.py` owns the explicit sequential schema registry, currently version 2. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application.
 - `app/config.py` loads `.env`, resolves relative SQLite paths from the project root, and owns all model, graph, reminder, and logging configuration.
 - Unsafe graph/reminder configuration is rejected at startup: thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
 - `app/db/models.py` defines Word, LearningState, ReviewLog, ConfusionEdge, AIAnalysis, EmbeddingCache, and ReminderRuntimeState.
 - UTC-aware values are converted through a custom SQLAlchemy type so stored SQLite timestamps are consistent and loaded values regain UTC awareness.
 - SQLite review writes acquire `BEGIN IMMEDIATE` before reading LearningState because SQLite ignores `SELECT ... FOR UPDATE`; competing application windows therefore cannot both overwrite the same prior state.
-- Word seeding is idempotent.
+- `app/db/seed.py` validates an entire CSV before mutation, including its required columns, unique single-word English headwords, CET4/CET6 levels, nonempty meanings, and bounded numeric fields. Word seeding is idempotent and supports a per-row initial release delay.
+- `scripts/build_open_vocabulary.py` reproducibly builds the redistributable CET artifact from hash-pinned ECDICT and FreeDict sources. Only words with an ECDICT CET tag/phonetic/Chinese meaning and an independent FreeDict bilingual/pronunciation entry survive. The generated CSV hash, source hashes, versions, licenses, transformation, and counts are committed alongside the artifact.
 
 ### Review and learning loop
 
 - `app/domain/fsrs_scheduler.py` is a deterministic adapter over the official MIT-licensed `py-fsrs` 6.3.2 implementation of FSRS-6. It uses 90% desired retention, one ten-minute learning step, one ten-minute relearning step, a 36,500-day maximum, and no interval fuzzing.
 - LearningState persists FSRS Learning/Review/Relearning state and the active step. Schema migration 2 maps untouched legacy cards to Learning step 0 and reviewed legacy cards to Review without discarding their difficulty, stability, or history.
 - `app/services/review_service.py` deterministically selects due words and atomically updates LearningState plus ReviewLog.
+- `STUDY_LEVEL` is validated as CET4 or CET6. Review queues, due counts, reminder inputs, and every dashboard statistic are restricted to the selected level.
+- The open wordbank stages each level independently at no more than 20 newly due words per day; the 13 curated confusion examples remain immediately available and override any open-data duplicate.
 - Review timestamps must advance monotonically for each word, preventing delayed or duplicate submissions from moving a learning state backwards.
 - Due ordering prioritizes longest overdue, then higher lapse count, then higher error count.
 - Review batches default to 30; completing one batch loads another when more words are already due.
@@ -148,15 +151,17 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 72 passed in 1.08s | 2026-08-22 |
+| Full pytest suite | 83 passed in 1.78s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Mypy application/scripts check | exit code 0; 50 source files | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 51 source files | 2026-08-22 |
 | Schema migration matrix | 5 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS state mapping, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
 | Official FSRS-6 reference vectors | initial Again/Hard/Good/Easy plus five-review sequence passed against py-fsrs 6.3.2 | 2026-08-22 |
 | Deterministic randomized algorithm invariants | 6,000 checks passed | 2026-08-22 |
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
-| Offscreen startup smoke | exit code 0; runtime database upgraded to schema version 2 | 2026-08-22 |
-| SQLite integrity and foreign keys | schema version 2; `integrity_check=ok`; no foreign-key violations; 6 Learning and 7 Review rows mapped | 2026-08-22 |
+| Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
+| Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
+| Offscreen startup smoke | exit code 0; schema version 2; inserted 4,598 new open-data words into the existing runtime database | 2026-08-22 |
+| SQLite integrity and foreign keys | 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
 | Ollama embedding through cached provider | 2 vectors, dimension 768; cold 20.159s; cache rows 0→2→2 | 2026-08-22 |
@@ -181,10 +186,6 @@ python main.py
 ```
 
 ## 6. Known incomplete work
-
-### P1: correctness and data evolution
-
-- The 13-word sample is only a demonstration set. Add a legally usable, validated CET-4/CET-6 data import workflow before real study use.
 
 ### P2: product completeness
 
@@ -216,6 +217,9 @@ python main.py
 12. Direct Ollama transport: localhost model calls ignore OS/environment proxies, while the separately configured OpenAI-compatible provider retains normal proxy behavior.
 13. Cold-start tolerance: local Embedding uses a 60-second timeout because measured first load slightly exceeded 20 seconds.
 14. Injectable reminder clock: time-dependent state coordination accepts a clock dependency; tests must not depend on the wall-clock date.
+15. Conservative vocabulary licensing: generated data is distributed under CC BY-SA 3.0, with ECDICT MIT and FreeDict/WikDict/Wiktionary/DBnary attribution, exact version/hash provenance, and an explicit transformation record.
+16. Dual-source vocabulary gate: ECDICT supplies display fields and CET metadata, while FreeDict independently confirms an open bilingual entry and pronunciation. A source mismatch removes the row instead of guessing.
+17. Bounded initial workload: new open-data words are frequency-sorted and released independently per selected CET level at 20 per day. Level selection is a deterministic query filter, not an LLM decision.
 15. Fail-fast configuration: graph and reminder settings are validated before use; invalid bounds, non-finite weights, unsafe candidate limits, and invalid reminder windows are not silently accepted.
 16. Monotonic review history: a review cannot be committed at or before that word's previous review timestamp.
 17. Cache self-repair: malformed Embedding cache rows are discarded and regenerated, and network/model waits never occur inside an open cache transaction.
