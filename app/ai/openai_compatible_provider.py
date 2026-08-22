@@ -46,6 +46,7 @@ class OpenAICompatibleProvider(LLMProvider):
             "model": self.model,
             "messages": messages,
             "temperature": 0.1,
+            "max_tokens": 2_048,
         }
         if response_schema is not None:
             body["response_format"] = {

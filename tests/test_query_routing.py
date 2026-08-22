@@ -67,3 +67,13 @@ def test_explicit_off_topic_policy_takes_priority_over_length() -> None:
 def test_policy_rejects_invalid_limits() -> None:
     with pytest.raises(ValueError):
         QueryRoutingPolicy(max_local_characters=0)
+    with pytest.raises(ValueError):
+        QueryRoutingPolicy(max_local_characters=500, max_question_characters=400)
+
+
+def test_absolute_question_budget_refuses_oversized_input() -> None:
+    assessment = POLICY.assess("adapt " * 1_000)
+
+    assert assessment.route is QueryRoute.REFUSE
+    assert assessment.confidence == 1.0
+    assert "过长" in assessment.reason

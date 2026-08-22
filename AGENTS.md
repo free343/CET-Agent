@@ -122,7 +122,7 @@ Local Ollama:
 - Invalid or non-finite cached vectors are deleted and regenerated. Model calls occur outside SQLite transactions so an Embedding cold start cannot hold a database transaction open.
 - Embedding cache persistence uses SQLite conflict-update semantics, so simultaneous workers converge on one valid row instead of raising a unique-key error.
 - `app/ai/prompts.py` is the only location for model prompts.
-- `app/ai/schemas.py` strictly validates structured cluster analysis with Pydantic and forbids extra fields.
+- `app/ai/schemas.py` strictly validates structured cluster analysis with Pydantic, forbids extra fields, caps every text field, permits at most eight word explanations and six bounded exercise options, and rejects raw structured responses above 32,000 characters.
 - `app/services/ai_service.py` retries invalid structured JSON once, then returns a safe degraded result; normal chat also degrades without crashing.
 - Local and advanced chat Providers have independent provider/model/base-URL/API-key settings. `create_advanced_llm_provider` returns `None` when disabled and constructs an Ollama or OpenAI-compatible adapter when explicitly configured; the UI enables the advanced choice only in the latter case.
 - API-key fields are excluded from the Settings representation. Keys remain local to `.env` and are never rendered by the settings page or logged.
@@ -131,6 +131,7 @@ Local Ollama:
 - If another window stores the same AI analysis after the initial cache read, the losing writer reloads the winning validated row and returns it as a cache hit.
 - `app/domain/query_routing.py` owns an injectable deterministic policy that normalizes input and returns an explainable `LOCAL`, `CONFIRM_ADVANCED`, or `REFUSE` decision with bounded confidence. English markers use word boundaries, and an off-topic marker is overridden only by explicit metalinguistic intent such as asking for a meaning or translation. Long or complex language tasks require explicit user choice; an LLM never selects the model.
 - The local assistant rejects empty, general-chat, real-time, and professional out-of-scope requests without calling a model. The Chat UI consumes the structured route instead of comparing a magic confidence threshold.
+- Questions above 4,000 normalized characters are refused before any Provider call. Providers request at most 2,048 output tokens, ordinary answers are bounded to 4,000 characters, model names to 200 characters, and the Chat/Analysis text documents retain only 200/300 blocks respectively.
 
 ### Reminder and desktop lifecycle
 
@@ -172,13 +173,14 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 148 passed in 5.13s | 2026-08-22 |
+| Full pytest suite | 156 passed in 5.01s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
 | Ruff format gate | 82 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 54 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
 | Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
 | Cross-instance active-review lease | independent owners coexist; releasing one preserves another; observer notifications are suppressed; expired leases are removed; hidden review-worker results cannot republish activity | 2026-08-22 |
+| AI capacity budgets | oversized question refusal, 4,000-character chat truncation, 32,000-character structured raw guard, bounded schema fields/lists/options, 2,048-token Provider requests, and 200/300-block UI documents passed | 2026-08-22 |
 | Concurrent fresh bootstrap | three repeated two-worker runs on separate fresh databases all returned 4,611 words and one activation per worker; regression test also passed | 2026-08-22 |
 | Bootstrap/logging failure safety | forced schema-upgrade failure disposed its Database; simultaneous logging configuration registered exactly one file/console handler pair | 2026-08-22 |
 | Per-level first activation | fresh CET4 rebased exactly 3,320 untouched open words once; later CET6 activation independently rebased 1,278; repeat startup preserved the original activation | 2026-08-22 |
@@ -205,7 +207,8 @@ Update this section after every material change. Never report a feature as verif
 | Ollama embedding through cached provider | 2 vectors, dimension 768; cold 20.159s; cache rows 0→2→2 | 2026-08-22 |
 | Semantic graph rebuild | 7 candidates, 5 edges, 3 clusters; `embedding_available=true` | 2026-08-22 |
 | Structured cluster JSON and AI cache hit | first live result `cached=false`; second `cached=true`; Pydantic passed | 2026-08-22 |
-| Latest warm full local-AI validation | exit code 0 on schema v3 repeat startup; chat 2.504s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
+| Latest warm full local-AI validation | exit code 0 on schema v4 repeat startup; chat 2.606s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
+| Live uncached bounded structured output | `accept/except` analysis under the 2,048-token Provider limit returned non-degraded schema-valid output for both words; 829 JSON characters | 2026-08-22 |
 | Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; native toast/tray timing remains | 2026-08-22 |
 
 Baseline commands:
@@ -233,7 +236,6 @@ python main.py
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
 - Chat is intentionally single-turn and has no bounded conversation persistence.
-- Structured AI fields and the visible in-session chat transcript do not yet have explicit size/count budgets.
 - Complete the remaining native Windows validation for tray/toast behavior, real 30-minute snooze timing, and closing during an uncached active AI request.
 
 ### P3: delivery engineering
@@ -282,6 +284,7 @@ python main.py
 36. Page-owned background work: each interactive page permits at most one database/model worker at a time, renders results only on the Qt thread, and exposes its active worker to the main-window deferred-close coordinator. Dashboard refreshes coalesce; review submissions preserve the current card until persistence succeeds.
 37. Atomic reminder claim: the persisted runtime row is authoritative at evaluation time. A process may present a notification only after it records the cooldown under the SQLite writer reservation; local startup snapshots never decide cross-process ownership. Reminder database actions are FIFO-serialized off the GUI thread.
 38. Expiring review leases: active-review suppression is a per-instance lease table rather than a singleton flag. Multiple windows may coexist, each owner can release only itself, evaluations prune expired crash remnants, and the five-minute reminder heartbeat renews a ten-minute lease.
+39. Layered AI capacity budgets: deterministic routing rejects oversized inputs, Provider requests cap generation tokens, Service output is truncated or rejected before construction/cache, Pydantic caps every structured field and collection, and Qt documents prune old blocks. No single layer is trusted as the only bound.
 
 ## 8. Development constraints
 

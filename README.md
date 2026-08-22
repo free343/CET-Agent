@@ -19,6 +19,7 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 - 拼写、语义、共错和时间相关度的混合评分；
 - Ollama 与 OpenAI-compatible LLM Provider 接口；
 - Pydantic 结构化输出、一次 JSON 重试、安全降级与 AI 结果缓存；
+- AI 输入、Provider 输出 token、结构化字段/列表和界面文本块均有显式容量上限；
 - 独立 Embedding Provider 及 SQLite 缓存；
 - 可解释的确定性问题路由：本地回答、确认高级模型或直接拒绝越界请求；
 - demo 学习历史和 pytest 核心测试。

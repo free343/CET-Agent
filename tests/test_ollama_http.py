@@ -56,6 +56,25 @@ def test_ollama_chat_bypasses_environment_proxy(monkeypatch) -> None:
 
     assert content == "ok"
     assert captured["trust_env"] is False
+    assert captured["json"]["options"]["num_predict"] == 2_048
+
+
+def test_openai_chat_sets_output_token_budget(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return FakeResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("app.ai.openai_compatible_provider.httpx.post", fake_post)
+
+    content = OpenAICompatibleProvider("http://localhost:1234", "chat").generate(
+        [{"role": "user", "content": "hello"}]
+    )
+
+    assert content == "ok"
+    assert captured["json"]["max_tokens"] == 2_048
 
 
 def test_ollama_embedding_normalizes_non_object_payload(monkeypatch) -> None:

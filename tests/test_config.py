@@ -29,6 +29,7 @@ from app.config import Settings, _env_float, _env_int, _env_time
         {"llm_provider": "unsupported"},
         {"embedding_provider": "unsupported"},
         {"llm_model": ""},
+        {"llm_model": "x" * 201},
         {"llm_base_url": "localhost:11434"},
         {"embedding_model": ""},
         {"embedding_base_url": "not-a-url"},

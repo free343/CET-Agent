@@ -148,15 +148,26 @@ class QueryAssessment:
 class QueryRoutingPolicy:
     max_local_characters: int = 220
     max_local_english_tokens: int = 40
+    max_question_characters: int = 4_000
 
     def __post_init__(self) -> None:
-        if self.max_local_characters <= 0 or self.max_local_english_tokens <= 0:
+        if (
+            self.max_local_characters <= 0
+            or self.max_local_english_tokens <= 0
+            or self.max_question_characters < self.max_local_characters
+        ):
             raise ValueError("Query routing limits must be positive")
 
     def assess(self, question: str) -> QueryAssessment:
         normalized = _normalize(question)
         if not normalized:
             return QueryAssessment(QueryRoute.REFUSE, 1.0, "问题为空。")
+        if len(normalized) > self.max_question_characters:
+            return QueryAssessment(
+                QueryRoute.REFUSE,
+                1.0,
+                "问题过长，请缩短后再试。",
+            )
 
         english_tokens = _ENGLISH_TOKEN.findall(normalized)
         has_learning_context = _contains_any(normalized, _LEARNING_MARKERS)

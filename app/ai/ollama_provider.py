@@ -34,7 +34,7 @@ class OllamaProvider(LLMProvider):
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": 0.1},
+            "options": {"temperature": 0.1, "num_predict": 2_048},
         }
         if response_schema is not None:
             body["format"] = response_schema.model_json_schema()

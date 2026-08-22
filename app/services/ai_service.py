@@ -12,6 +12,8 @@ from sqlalchemy.exc import IntegrityError
 from app.ai.llm_provider import LLMProvider, LLMUnavailableError
 from app.ai.prompts import PROMPT_VERSION, chat_messages, cluster_analysis_messages
 from app.ai.schemas import (
+    MAX_CHAT_RESPONSE_CHARS,
+    MAX_CLUSTER_RESPONSE_CHARS,
     AIAnswer,
     ClusterAnalysis,
     ClusterAnalysisResult,
@@ -71,14 +73,15 @@ class AIService:
         try:
             text = provider.generate(chat_messages(question))
             return AIAnswer(
-                text=text,
+                text=self._bounded_chat_text(text),
                 confidence=assessment.confidence,
                 model=provider.model,
             )
         except LLMUnavailableError as exc:
             logger.warning("Vocabulary assistant unavailable: %s", exc)
+            message = str(exc).strip() or "模型服务暂不可用，请稍后重试。"
             return AIAnswer(
-                text=str(exc),
+                text=self._bounded_chat_text(message),
                 confidence=assessment.confidence,
                 model=provider.model,
                 degraded=True,
@@ -109,6 +112,8 @@ class AIService:
             )
             if cached:
                 try:
+                    if len(cached.output_json) > MAX_CLUSTER_RESPONSE_CHARS:
+                        raise ValueError("Cached cluster analysis exceeds size budget")
                     analysis = ClusterAnalysis.model_validate_json(cached.output_json)
                     self._validate_cluster_words(analysis, cluster)
                     return ClusterAnalysisResult(
@@ -186,6 +191,8 @@ class AIService:
 
     @staticmethod
     def _parse_cluster_analysis(raw: str) -> ClusterAnalysis:
+        if len(raw) > MAX_CLUSTER_RESPONSE_CHARS:
+            raise ValueError("Cluster analysis exceeds size budget")
         content = raw.strip()
         if content.startswith("```"):
             lines = content.splitlines()
@@ -195,6 +202,12 @@ class AIService:
                 lines = lines[:-1]
             content = "\n".join(lines)
         return ClusterAnalysis.model_validate_json(content)
+
+    @staticmethod
+    def _bounded_chat_text(value: str) -> str:
+        if len(value) <= MAX_CHAT_RESPONSE_CHARS:
+            return value
+        return value[: MAX_CHAT_RESPONSE_CHARS - 1].rstrip() + "…"
 
     @staticmethod
     def _validate_cluster_words(

@@ -161,8 +161,11 @@ class Settings:
 
 
 def _validate_model_endpoint(prefix: str, model: str, base_url: str) -> None:
-    if not model.strip():
+    normalized_model = model.strip()
+    if not normalized_model:
         raise ValueError(f"{prefix}_MODEL must not be empty")
+    if len(normalized_model) > 200:
+        raise ValueError(f"{prefix}_MODEL must not exceed 200 characters")
     parsed = urlsplit(base_url.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError(f"{prefix}_BASE_URL must be an absolute HTTP(S) URL")

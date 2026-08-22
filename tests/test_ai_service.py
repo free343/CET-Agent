@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from threading import Barrier
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy import func, select
 
 from app.ai.llm_provider import LLMProvider, LLMUnavailableError
-from app.ai.schemas import ClusterAnalysis
+from app.ai.schemas import MAX_CHAT_RESPONSE_CHARS, ClusterAnalysis
 from app.db.models import AIAnalysis, RelationType
 from app.services.ai_service import AIService
 from app.services.analysis_service import ConfusionCluster
@@ -201,3 +204,41 @@ def test_concurrent_cluster_analysis_cache_writes_converge(database) -> None:
     assert sorted(result.cached for result in results) == [False, True]
     with database.session() as session:
         assert session.scalar(select(func.count(AIAnalysis.id))) == 1
+
+
+def test_overlong_cluster_field_retries_then_degrades(database) -> None:
+    oversized = deepcopy(VALID_ANALYSIS)
+    oversized["summary"] = "x" * 1_201
+    provider = FakeProvider([json.dumps(oversized), json.dumps(oversized)])
+
+    result = AIService(database, provider).analyze_cluster(sample_cluster())
+
+    assert provider.calls == 2
+    assert result.degraded is True
+    with database.session() as session:
+        assert session.scalar(select(func.count(AIAnalysis.id))) == 0
+
+
+def test_cluster_schema_rejects_excessive_options_and_words() -> None:
+    excessive_options = deepcopy(VALID_ANALYSIS)
+    excessive_options["exercise"]["options"] = [f"option-{index}" for index in range(7)]
+    overlong_option = deepcopy(VALID_ANALYSIS)
+    overlong_option["exercise"]["options"] = ["x" * 301]
+    excessive_words = deepcopy(VALID_ANALYSIS)
+    excessive_words["word_explanations"] *= 5
+
+    with pytest.raises(ValidationError):
+        ClusterAnalysis.model_validate(excessive_options)
+    with pytest.raises(ValidationError):
+        ClusterAnalysis.model_validate(overlong_option)
+    with pytest.raises(ValidationError):
+        ClusterAnalysis.model_validate(excessive_words)
+
+
+def test_chat_answer_is_truncated_to_capacity_budget(database) -> None:
+    provider = FakeProvider(["x" * (MAX_CHAT_RESPONSE_CHARS + 100)])
+
+    answer = AIService(database, provider).ask("adapt 是什么意思？")
+
+    assert len(answer.text) == MAX_CHAT_RESPONSE_CHARS
+    assert answer.text.endswith("…")

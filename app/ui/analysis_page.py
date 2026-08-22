@@ -21,6 +21,7 @@ from app.ui.widgets.async_worker import AsyncWorker
 
 logger = logging.getLogger(__name__)
 _DEFAULT_STATUS = "关系由学习记录与确定性算法生成。"
+ANALYSIS_OUTPUT_MAX_BLOCKS = 300
 
 
 class AnalysisPage(QWidget):
@@ -65,6 +66,7 @@ class AnalysisPage(QWidget):
         layout.addWidget(self.ai_button)
         self.ai_output = QTextEdit()
         self.ai_output.setReadOnly(True)
+        self.ai_output.document().setMaximumBlockCount(ANALYSIS_OUTPUT_MAX_BLOCKS)
         self.ai_output.setPlaceholderText(
             "选择词簇后，可让本地模型解释易混原因并生成练习。"
         )

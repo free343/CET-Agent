@@ -6,8 +6,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from app.domain.query_routing import QueryAssessment, QueryRoute
-from app.ui.chat_page import ChatPage
+from app.domain.query_routing import QueryAssessment, QueryRoute, QueryRoutingPolicy
+from app.ui.chat_page import CHAT_TRANSCRIPT_MAX_BLOCKS, ChatPage
 
 
 class LowConfidenceService:
@@ -39,4 +39,19 @@ def test_pending_routing_question_cannot_be_overwritten() -> None:
 
     assert page.pending_question == "first complex question"
     assert "second complex question" not in page.transcript.toPlainText()
+    page.deleteLater()
+
+
+def test_chat_widgets_enforce_input_and_transcript_budgets() -> None:
+    app = QApplication.instance() or QApplication([])
+    page = ChatPage(LowConfidenceService())
+
+    page.input.setText("x" * (QueryRoutingPolicy().max_question_characters + 10))
+    for index in range(CHAT_TRANSCRIPT_MAX_BLOCKS + 20):
+        page.transcript.append(f"line-{index}")
+    app.processEvents()
+
+    assert len(page.input.text()) == QueryRoutingPolicy().max_question_characters
+    assert page.transcript.document().blockCount() <= CHAT_TRANSCRIPT_MAX_BLOCKS
+    assert "line-0" not in page.transcript.toPlainText()
     page.deleteLater()

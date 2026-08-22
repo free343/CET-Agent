@@ -16,8 +16,10 @@ from PySide6.QtWidgets import (
 )
 
 from app.ai.schemas import AIAnswer
-from app.domain.query_routing import QueryAssessment, QueryRoute
+from app.domain.query_routing import QueryAssessment, QueryRoute, QueryRoutingPolicy
 from app.ui.widgets.async_worker import AsyncWorker
+
+CHAT_TRANSCRIPT_MAX_BLOCKS = 200
 
 
 class ChatService(Protocol):
@@ -47,6 +49,7 @@ class ChatPage(QWidget):
 
         self.transcript = QTextEdit()
         self.transcript.setReadOnly(True)
+        self.transcript.document().setMaximumBlockCount(CHAT_TRANSCRIPT_MAX_BLOCKS)
         self.transcript.setPlaceholderText("例如：economic 和 economical 有什么区别？")
         layout.addWidget(self.transcript, 1)
 
@@ -71,6 +74,7 @@ class ChatPage(QWidget):
 
         input_row = QHBoxLayout()
         self.input = QLineEdit()
+        self.input.setMaxLength(QueryRoutingPolicy().max_question_characters)
         self.input.setPlaceholderText("输入英语学习问题…")
         self.input.returnPressed.connect(self.send)
         self.send_button = QPushButton("发送")

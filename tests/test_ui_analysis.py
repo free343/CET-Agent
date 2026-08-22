@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.db.models import RelationType
 from app.services.analysis_service import ConfusionCluster
-from app.ui.analysis_page import AnalysisPage
+from app.ui.analysis_page import ANALYSIS_OUTPUT_MAX_BLOCKS, AnalysisPage
 
 
 class FakeAnalysisService:
@@ -49,4 +49,17 @@ def test_refresh_clears_stale_analysis_and_error_status() -> None:
 
     assert page.ai_output.toPlainText() == ""
     assert page.status.text() == "关系由学习记录与确定性算法生成。"
+    page.deleteLater()
+
+
+def test_analysis_output_has_bounded_document_blocks() -> None:
+    app = QApplication.instance() or QApplication([])
+    page = AnalysisPage(FakeAnalysisService(), object())
+
+    for index in range(ANALYSIS_OUTPUT_MAX_BLOCKS + 20):
+        page.ai_output.append(f"line-{index}")
+    app.processEvents()
+
+    assert page.ai_output.document().blockCount() <= ANALYSIS_OUTPUT_MAX_BLOCKS
+    assert "line-0" not in page.ai_output.toPlainText()
     page.deleteLater()
