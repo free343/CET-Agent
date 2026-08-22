@@ -102,6 +102,8 @@ python main.py
 
 第一次运行会自动创建 `data/cet_agent.db`，按顺序升级到当前 schema 版本，并导入 13 条人工示例词和 4,598 条开放 CET 词汇。`STUDY_LEVEL=CET4` 或 `CET6` 决定复习队列、提醒和仪表盘统计的范围；每个级别在首次实际启用时独立按词频每天最多释放 20 个从未复习的开放词条，因此安装很久后再切换等级也不会瞬间形成数千条积压。人工示例词保持立即可用，已有复习历史和 FSRS 状态绝不会因等级切换而移动。升级和导入均可重复执行；升级失败会回滚，数据库版本高于应用支持范围时会拒绝启动，避免旧程序误写新结构。
 
+源码运行时数据库、日志和 `.env` 仍位于项目目录。冻结后的 Windows 版本从发行包读取词库，将数据库、日志、`.env` 与自动复制的 `.env.example` 写入 `%LOCALAPPDATA%\CET-Agent`，不会修改安装目录。
+
 开放词库由固定版本的 ECDICT 和 FreeDict eng-zho 交叉构建。构建器会下载后核验来源哈希，只保留同时具有开放双语词条、音标和 CET 标签的单词，再生成可审计的来源清单：
 
 ```powershell
@@ -221,6 +223,27 @@ python scripts/benchmark_confusion_graph.py
 - Prompt 只存在于 `app/ai/prompts.py`，输入仅含 Service 提取的必要结构化统计；
 - 聊天问题由 `app/domain/query_routing.py` 先做确定性范围和复杂度判断；路由会返回决策、置信度与原因，LLM 不参与选择自身或高级模型；
 - 提醒策略是纯函数；系统托盘消息与应用内“开始复习 / 30 分钟后提醒”操作分离。多窗口通过原子 cooldown 领取避免重复通知，并用每实例短期租约共享“正在复习”状态。
+
+## Windows 发行构建
+
+开发依赖锁已固定 PyInstaller。构建可重复的 windowed onedir 发行目录：
+
+```powershell
+python -m pip install -r requirements-dev.lock
+python -m PyInstaller --noconfirm --clean packaging/CET-Agent.spec
+```
+
+结果位于 `dist/CET-Agent/CET-Agent.exe`。可在隔离的可写目录中做启动检查：
+
+```powershell
+$env:LOCALAPPDATA = Join-Path $env:TEMP 'cet-agent-package-smoke'
+$env:QT_QPA_PLATFORM = 'offscreen'
+$process = Start-Process -FilePath 'dist/CET-Agent/CET-Agent.exe' `
+  -ArgumentList '--smoke-test' -WindowStyle Hidden -Wait -PassThru
+$process.ExitCode
+```
+
+发行包包含运行所需词库、来源记录、许可证和 `.env.example`；FSRS 的未使用 Optimizer 训练栈不会被打包。
 
 ## 项目结构
 

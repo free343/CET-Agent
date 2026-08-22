@@ -51,3 +51,26 @@ jobs:
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
           python main.py --smoke-test
+
+      - name: Build Windows release
+        if: matrix.python-version == '3.13'
+        run: python -m PyInstaller --noconfirm --clean packaging/CET-Agent.spec
+
+      - name: Packaged startup and writable-path smoke
+        if: matrix.python-version == '3.13'
+        shell: pwsh
+        run: |
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP "cet-agent-packaged-runtime"
+          $env:LOCALAPPDATA = $runtimeRoot
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $process = Start-Process `
+            -FilePath "dist/CET-Agent/CET-Agent.exe" `
+            -ArgumentList "--smoke-test" `
+            -WindowStyle Hidden `
+            -Wait `
+            -PassThru
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          $appData = Join-Path $runtimeRoot "CET-Agent"
+          if (-not (Test-Path (Join-Path $appData "data/cet_agent.db"))) { exit 1 }
+          if (-not (Test-Path (Join-Path $appData "logs/cet-agent.log"))) { exit 1 }
+          if (-not (Test-Path (Join-Path $appData ".env.example"))) { exit 1 }

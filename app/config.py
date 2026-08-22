@@ -11,8 +11,12 @@ from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
+from app.paths import APPLICATION_PATHS
+
+PROJECT_ROOT = APPLICATION_PATHS.resource_root
+RUNTIME_ROOT = APPLICATION_PATHS.runtime_root
+ENV_FILE = APPLICATION_PATHS.env_file
+load_dotenv(ENV_FILE)
 
 
 def _env_float(name: str, default: float) -> float:
@@ -49,7 +53,7 @@ def _database_url() -> str:
     if raw.startswith("sqlite:///"):
         db_path = Path(raw.removeprefix("sqlite:///"))
         if not db_path.is_absolute():
-            db_path = PROJECT_ROOT / db_path
+            db_path = RUNTIME_ROOT / db_path
         return f"sqlite:///{db_path.as_posix()}"
     return raw
 

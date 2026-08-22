@@ -4,6 +4,8 @@
 #
 #    pip-compile --no-emit-index-url --no-emit-trusted-host --output-file=requirements-dev.lock --strip-extras requirements-dev.txt
 #
+altgraph==0.17.5
+    # via pyinstaller
 annotated-types==0.8.0
     # via pydantic
 anyio==4.14.2
@@ -39,9 +41,14 @@ mypy==2.3.0
 mypy-extensions==1.1.0
     # via mypy
 packaging==26.3
-    # via pytest
+    # via
+    #   pyinstaller
+    #   pyinstaller-hooks-contrib
+    #   pytest
 pathspec==1.1.1
     # via mypy
+pefile==2024.8.26
+    # via pyinstaller
 pluggy==1.6.0
     # via pytest
 pydantic==2.13.4
@@ -50,6 +57,10 @@ pydantic-core==2.46.4
     # via pydantic
 pygments==2.21.0
     # via pytest
+pyinstaller==6.22.0
+    # via -r requirements-dev.txt
+pyinstaller-hooks-contrib==2026.6
+    # via pyinstaller
 pyside6==6.11.2
     # via -r requirements.txt
 pyside6-addons==6.11.2
@@ -62,6 +73,8 @@ pytest==8.4.2
     # via -r requirements-dev.txt
 python-dotenv==1.2.3
     # via -r requirements.txt
+pywin32-ctypes==0.2.3
+    # via pyinstaller
 ruff==0.16.1
     # via -r requirements-dev.txt
 shiboken6==6.11.2
@@ -81,3 +94,6 @@ typing-extensions==4.16.0
     #   typing-inspection
 typing-inspection==0.4.4
     # via pydantic
+
+# The following packages are considered to be unsafe in a requirements file:
+# setuptools

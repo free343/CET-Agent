@@ -6,6 +6,7 @@ from threading import Barrier
 import pytest
 from sqlalchemy import func, select
 
+from app import bootstrap
 from app.bootstrap import initialize_database
 from app.config import Settings
 from app.db.models import StudyLevelActivation, Word, WordLevel
@@ -98,3 +99,24 @@ def test_failed_bootstrap_disposes_database(monkeypatch, tmp_path) -> None:
         )
 
     assert database.disposed is True
+
+
+def test_runtime_config_template_is_installed_without_overwrite(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    resource_root = tmp_path / "resources"
+    runtime_root = tmp_path / "runtime"
+    resource_root.mkdir()
+    (resource_root / ".env.example").write_text("STUDY_LEVEL=CET4\n", encoding="utf-8")
+    target = runtime_root / ".env.example"
+    monkeypatch.setattr(bootstrap, "PROJECT_ROOT", resource_root)
+    monkeypatch.setattr(bootstrap, "RUNTIME_ROOT", runtime_root)
+    monkeypatch.setattr(bootstrap, "ENV_FILE", runtime_root / ".env")
+
+    bootstrap._install_runtime_config_template()
+    assert target.read_text(encoding="utf-8") == "STUDY_LEVEL=CET4\n"
+
+    target.write_text("user-owned\n", encoding="utf-8")
+    bootstrap._install_runtime_config_template()
+    assert target.read_text(encoding="utf-8") == "user-owned\n"

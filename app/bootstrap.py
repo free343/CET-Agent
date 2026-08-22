@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+import shutil
 
-from app.config import PROJECT_ROOT, Settings, settings
+from app.config import ENV_FILE, PROJECT_ROOT, RUNTIME_ROOT, Settings, settings
 from app.db.database import Database
 from app.db.models import WordLevel
 from app.db.seed import (
@@ -19,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 
 def initialize_database(app_settings: Settings = settings) -> Database:
-    configure_logging(PROJECT_ROOT / "logs", app_settings.log_level)
+    configure_logging(RUNTIME_ROOT / "logs", app_settings.log_level)
+    _install_runtime_config_template()
     database = Database(app_settings.database_url)
     try:
         schema_version = database.upgrade_schema()
@@ -53,3 +55,12 @@ def initialize_database(app_settings: Settings = settings) -> Database:
     except Exception:
         database.dispose()
         raise
+
+
+def _install_runtime_config_template() -> None:
+    source = PROJECT_ROOT / ".env.example"
+    target = ENV_FILE.with_name(".env.example")
+    if source == target or target.exists() or not source.is_file():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)

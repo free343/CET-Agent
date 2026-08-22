@@ -47,7 +47,7 @@ Do not add a framework or abstraction unless the current boundary actually needs
 - Runtime stack: PySide6, SQLite, SQLAlchemy 2.x, py-fsrs 6.3.2, Pydantic, httpx, python-dotenv.
 - Test runner: pytest.
 - Main entry point: `main.py`.
-- Runtime database: `data/cet_agent.db` (ignored by source control rules).
+- Source-mode runtime database: `data/cet_agent.db` (ignored by source control rules). Frozen Windows builds use `%LOCALAPPDATA%\CET-Agent\data\cet_agent.db`; logs and the local `.env`/template use the same writable application root.
 - Ollama model storage observed on this machine: `D:\model`.
 - Vocabulary: 13 curated demo words in `data/sample_words.csv` plus 4,598 validated open-data words in `data/cet_vocabulary_open.csv` (3,320 CET4 and 1,278 CET6); the two files do not overlap.
 - Vocabulary/CI cleanup: downloaded ECDICT and FreeDict source archives, the deterministic rebuild copy, and the clean lock-validation virtual environment were removed from the system temp directory after verification. They are reproducible from committed URLs, hashes, lock files, and scripts; no agent-created vocabulary download partials remain.
@@ -70,7 +70,8 @@ Local Ollama:
 
 - `app/bootstrap.py` configures logging, upgrades the database schema, validates and idempotently imports both bundled vocabulary files, creates missing LearningState rows, and activates the selected study level inside one serialized startup transaction. If any initialization step fails, it disposes the newly created Database/Engine before propagating the failure.
 - `app/db/migrations.py` owns the explicit sequential schema registry, currently version 4. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application. Schema v3 adds persistent per-level activation state; schema v4 adds per-instance active-review leases.
-- `app/config.py` loads `.env`, resolves relative SQLite paths from the project root, and owns all model, graph, reminder, and logging configuration.
+- `app/config.py` loads the runtime `.env`, resolves relative SQLite paths from the writable runtime root, and owns all model, graph, reminder, and logging configuration.
+- `app/paths.py` separates read-only bundled resources from writable runtime state. Source execution keeps both at the repository root; a frozen executable reads vocabulary/config templates from `_MEIPASS` and writes database/log/config state under the user's local application-data directory.
 - Malformed environment values and unsafe model/graph/reminder configuration are rejected at startup: model endpoints must be absolute HTTP(S) URLs, thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
 - `app/db/models.py` defines Word, LearningState, ReviewLog, ConfusionEdge, AIAnalysis, EmbeddingCache, StudyLevelActivation, ReminderRuntimeState, and ReminderReviewLease.
 - UTC-aware values are converted through a custom SQLAlchemy type so stored SQLite timestamps are consistent and loaded values regain UTC awareness.
@@ -166,6 +167,7 @@ Local Ollama:
 - `requirements.txt` and `requirements-dev.txt` declare compatible direct dependencies; the corresponding `.lock` files pin the complete tested runtime and development dependency trees. Regenerate them with pip-tools 7.6.1 after changing a direct dependency.
 - `pyproject.toml` centralizes the Python 3.11 Ruff and Mypy baselines. The entire Python tree is Ruff-formatted; CI rejects lint, format, or application/script type-check drift.
 - `.github/workflows/ci.yml` runs on Windows for Python 3.11 and 3.13 with read-only repository permission. It installs the development lock, runs `pip check`, Ruff lint/format, Mypy, all tests, and the offscreen startup smoke. No Git remote is configured yet, so the workflow is locally validated but has not had a hosted run.
+- `packaging/CET-Agent.spec` builds a windowed PyInstaller 6.22.0 onedir release, bundles only the required vocabulary/license/config resources, and explicitly excludes the unused `fsrs.optimizer` scientific-training stack. CI builds and launches the package with isolated `LOCALAPPDATA`, then asserts writable database, log, and config-template paths.
 
 ## 5. Verification ledger
 
@@ -173,10 +175,10 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 156 passed in 5.01s | 2026-08-22 |
+| Full pytest suite | 161 passed in 4.93s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 82 files already formatted | 2026-08-22 |
-| Mypy application/scripts check | exit code 0; 54 source files | 2026-08-22 |
+| Ruff format gate | 84 files already formatted | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 55 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
 | Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
 | Cross-instance active-review lease | independent owners coexist; releasing one preserves another; observer notifications are suppressed; expired leases are removed; hidden review-worker results cannot republish activity | 2026-08-22 |
@@ -209,6 +211,8 @@ Update this section after every material change. Never report a feature as verif
 | Structured cluster JSON and AI cache hit | first live result `cached=false`; second `cached=true`; Pydantic passed | 2026-08-22 |
 | Latest warm full local-AI validation | exit code 0 on schema v4 repeat startup; chat 2.606s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
 | Live uncached bounded structured output | `accept/except` analysis under the 2,048-token Provider limit returned non-degraded schema-valid output for both words; 829 JSON characters | 2026-08-22 |
+| Frozen writable-path resolution | source/frozen/local-app-data/home-fallback/relative-database cases plus non-overwriting `.env.example` install passed | 2026-08-22 |
+| Windows onedir package | PyInstaller 6.22.0 build passed; packaged smoke created schema v4 with 4,611 words and `integrity_check=ok` under isolated `LOCALAPPDATA`; package directory remained state-free; 328 files, 138,820,361 bytes | 2026-08-22 |
 | Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; native toast/tray timing remains | 2026-08-22 |
 
 Baseline commands:
@@ -240,9 +244,8 @@ python main.py
 
 ### P3: delivery engineering
 
-- No release build or Windows installer.
+- The onedir Windows release is repeatable and smoke-tested, but there is no signed installer, application icon/version resource, or code-signing pipeline yet.
 - The CI workflow has no hosted run evidence until a Git remote is configured and the branch is pushed.
-- No full packaging test for writable data/log locations after installation.
 
 ## 7. Key design decisions
 
@@ -285,6 +288,7 @@ python main.py
 37. Atomic reminder claim: the persisted runtime row is authoritative at evaluation time. A process may present a notification only after it records the cooldown under the SQLite writer reservation; local startup snapshots never decide cross-process ownership. Reminder database actions are FIFO-serialized off the GUI thread.
 38. Expiring review leases: active-review suppression is a per-instance lease table rather than a singleton flag. Multiple windows may coexist, each owner can release only itself, evaluations prune expired crash remnants, and the five-minute reminder heartbeat renews a ten-minute lease.
 39. Layered AI capacity budgets: deterministic routing rejects oversized inputs, Provider requests cap generation tokens, Service output is truncated or rejected before construction/cache, Pydantic caps every structured field and collection, and Qt documents prune old blocks. No single layer is trusted as the only bound.
+40. Frozen path ownership: packaged resources are immutable inputs, while every mutable artifact belongs under a per-user local application-data root. Source mode intentionally preserves repository-local paths for developer ergonomics; packaged smoke must override `LOCALAPPDATA` and prove the distribution tree stays unchanged.
 
 ## 8. Development constraints
 

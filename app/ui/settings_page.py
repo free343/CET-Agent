@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QFormLayout, QFrame, QLabel, QVBoxLayout, QWidget
 
-from app.config import Settings
+from app.config import ENV_FILE, Settings
 
 
 class SettingsPage(QWidget):
@@ -38,9 +38,8 @@ class SettingsPage(QWidget):
             ),
         )
         layout.addWidget(card)
-        note = QLabel(
-            "第一版通过项目根目录的 .env 修改设置；API key 不会显示或写入日志。"
-        )
+        note = QLabel(f"通过 {ENV_FILE} 修改设置；API key 不会显示或写入日志。")
+        note.setWordWrap(True)
         note.setStyleSheet("color: #64748b;")
         layout.addWidget(note)
         layout.addStretch()
