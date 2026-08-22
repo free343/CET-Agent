@@ -68,14 +68,16 @@ Local Ollama:
 
 ### Bootstrap and persistence
 
-- `app/bootstrap.py` configures logging, upgrades the database schema, validates and idempotently imports both bundled vocabulary files, and creates missing LearningState rows.
-- `app/db/migrations.py` owns the explicit sequential schema registry, currently version 2. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application.
+- `app/bootstrap.py` configures logging, upgrades the database schema, validates and idempotently imports both bundled vocabulary files, creates missing LearningState rows, and activates the selected study level inside one serialized startup transaction. If any initialization step fails, it disposes the newly created Database/Engine before propagating the failure.
+- `app/db/migrations.py` owns the explicit sequential schema registry, currently version 3. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application. Schema v3 adds persistent per-level activation state.
 - `app/config.py` loads `.env`, resolves relative SQLite paths from the project root, and owns all model, graph, reminder, and logging configuration.
 - Malformed environment values and unsafe model/graph/reminder configuration are rejected at startup: model endpoints must be absolute HTTP(S) URLs, thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
-- `app/db/models.py` defines Word, LearningState, ReviewLog, ConfusionEdge, AIAnalysis, EmbeddingCache, and ReminderRuntimeState.
+- `app/db/models.py` defines Word, LearningState, ReviewLog, ConfusionEdge, AIAnalysis, EmbeddingCache, StudyLevelActivation, and ReminderRuntimeState.
 - UTC-aware values are converted through a custom SQLAlchemy type so stored SQLite timestamps are consistent and loaded values regain UTC awareness.
 - SQLite review writes acquire `BEGIN IMMEDIATE` before reading LearningState because SQLite ignores `SELECT ... FOR UPDATE`; competing application windows therefore cannot both overwrite the same prior state.
+- SQLite connections install a 15-second busy timeout and perform a bounded locked/busy retry while first negotiating WAL mode, so simultaneous first launches can converge on one fresh database instead of failing before the serialized migration transaction begins.
 - `app/db/seed.py` validates an entire CSV before mutation, including its required columns, unique single-word English headwords, CET4/CET6 levels, nonempty meanings, and bounded numeric fields. Word seeding is idempotent, supports a per-row initial release delay, and applies corrected bundled metadata to existing words without replacing their LearningState or review history.
+- `app/db/study_level_activation.py` persistently activates each selected CET level once. A never-used level rebases only untouched open-vocabulary cards from its activation time; curated words, reviewed cards, FSRS state, and ReviewLog history are never moved. Existing databases with open-word review history adopt the earliest such review as activation without rescheduling.
 - `scripts/build_open_vocabulary.py` reproducibly builds the redistributable CET artifact from hash-pinned ECDICT and FreeDict sources. Only words with an ECDICT CET tag/phonetic/Chinese meaning and an independent FreeDict bilingual/pronunciation entry survive. The generated CSV hash, source hashes, versions, licenses, transformation, and counts are committed alongside the artifact.
 
 ### Review and learning loop
@@ -84,7 +86,7 @@ Local Ollama:
 - LearningState persists FSRS Learning/Review/Relearning state and the active step. Schema migration 2 maps untouched legacy cards to Learning step 0 and reviewed legacy cards to Review without discarding their difficulty, stability, or history.
 - `app/services/review_service.py` deterministically selects due words and atomically updates LearningState plus ReviewLog.
 - `STUDY_LEVEL` is validated as CET4 or CET6. Review queues, due counts, reminder inputs, and every dashboard statistic are restricted to the selected level.
-- The open wordbank stages each level independently at no more than 20 newly due words per day; the 13 curated confusion examples remain immediately available and override any open-data duplicate.
+- The open wordbank stages each level independently from that level's first activation at no more than 20 newly due words per day; the 13 curated confusion examples remain immediately available and override any open-data duplicate.
 - Review timestamps must advance monotonically for each word, preventing delayed or duplicate submissions from moving a learning state backwards.
 - Due ordering prioritizes longest overdue, then higher lapse count, then higher error count.
 - Review batches default to 30; completing one batch loads another when more words are already due.
@@ -151,6 +153,7 @@ Local Ollama:
 - While chat is waiting for a low-confidence routing choice, its pending question and input controls are locked so a second send cannot silently replace the first question.
 - Model/network work runs in `AsyncWorker` QThreads, not on the UI thread.
 - Detailed failures go to logs; user-facing messages remain concise.
+- Root logging configuration is serialized within the process, preventing concurrent bootstrap calls from registering duplicate rotating-file and console handlers.
 - pytest cacheprovider is disabled by `pytest.ini` to avoid cache-directory write failures in restricted environments.
 - `scripts/validate_local_ai.py` is the repeatable P0 integration check for live chat, cached embeddings, semantic graph rebuild, structured cluster output, and AI cache reuse. Its latest cold and warm runs both exited successfully.
 
@@ -166,33 +169,37 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 127 passed in 3.15s | 2026-08-22 |
+| Full pytest suite | 134 passed in 4.66s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 77 files already formatted | 2026-08-22 |
-| Mypy application/scripts check | exit code 0; 53 source files | 2026-08-22 |
+| Ruff format gate | 81 files already formatted | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 54 source files | 2026-08-22 |
+| Concurrent fresh bootstrap | three repeated two-worker runs on separate fresh databases all returned 4,611 words and one activation per worker; regression test also passed | 2026-08-22 |
+| Bootstrap/logging failure safety | forced schema-upgrade failure disposed its Database; simultaneous logging configuration registered exactly one file/console handler pair | 2026-08-22 |
+| Per-level first activation | fresh CET4 rebased exactly 3,320 untouched open words once; later CET6 activation independently rebased 1,278; repeat startup preserved the original activation | 2026-08-22 |
+| Legacy level adoption | open-word review history preserved every due time and adopted its earliest review timestamp; curated/demo-only history did not suppress first real level activation | 2026-08-22 |
 | Deterministic chat routing | regression cases cover local vocabulary/grammar, Unicode normalization, advanced confirmation, empty/general/off-topic refusal, English word boundaries, guarded scope override, and zero-call refusal | 2026-08-22 |
 | Provider response-shape degradation | non-object and malformed nested OpenAI-compatible chat JSON plus non-object Ollama Embedding JSON normalized to project unavailable exceptions | 2026-08-22 |
 | Current-window confusion analysis | future-only repeat errors produced 0 candidates, 0 edges, and 0 clusters; current cluster counts remain window-aligned | 2026-08-22 |
 | Bundled metadata upgrade | corrected phonetic/meaning/example/level/frequency applied to an existing word while its ID, review count, stability, and due time remained unchanged | 2026-08-22 |
 | Advanced Provider bootstrap | disabled/default, independent OpenAI-compatible construction, invalid/incomplete configuration rejection, explicit advanced dispatch, and API-key repr redaction passed | 2026-08-22 |
 | Live advanced-provider dispatch | explicit advanced choice returned a non-degraded 283-character response from independent `qwen2.5:3b` while the local Provider pointed to an unreachable endpoint | 2026-08-22 |
-| 100-candidate graph performance | 100 errors per candidate and all 4,950 edges: 0.971s, 0.932s, 0.936s; median 0.936s; exact one-cluster invariant passed | 2026-08-22 |
+| 100-candidate graph performance | 100 errors per candidate and all 4,950 edges: 0.932s, 0.907s, 0.913s; median 0.913s; exact one-cluster invariant passed | 2026-08-22 |
 | Locked dependency install | clean Python 3.13 virtual environment installed `requirements-dev.lock`; `pip check` passed; Python 3.11/win_amd64 wheel-resolution dry run passed | 2026-08-22 |
 | GitHub Actions workflow | Windows Python 3.11/3.13 matrix defined with current official v7 checkout/setup actions; local-equivalent full gate passed; hosted run pending remote configuration | 2026-08-22 |
-| Schema migration matrix | 5 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS state mapping, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
+| Schema migration matrix | 6 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS mapping, v2→v3 level activation, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
 | Official FSRS-6 reference vectors | initial Again/Hard/Good/Easy plus five-review sequence passed against py-fsrs 6.3.2 | 2026-08-22 |
 | Deterministic randomized algorithm invariants | 6,000 checks passed | 2026-08-22 |
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup smoke | exit code 0; schema version 2; inserted 4,598 new open-data words into the existing runtime database | 2026-08-22 |
+| Offscreen startup smoke | exit code 0 on repeat schema-v3 startup; no duplicate import/state/activation work; prior 2→3 upgrade rebased exactly 3,320 untouched CET4 open words | 2026-08-22 |
 | SQLite integrity and foreign keys | 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
 | Ollama embedding through cached provider | 2 vectors, dimension 768; cold 20.159s; cache rows 0→2→2 | 2026-08-22 |
 | Semantic graph rebuild | 7 candidates, 5 edges, 3 clusters; `embedding_available=true` | 2026-08-22 |
 | Structured cluster JSON and AI cache hit | first live result `cached=false`; second `cached=true`; Pydantic passed | 2026-08-22 |
-| Latest warm full local-AI validation | exit code 0; chat 2.446s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; updated weighted-relation analysis cached false→true | 2026-08-22 |
+| Latest warm full local-AI validation | exit code 0 on schema v3 repeat startup; chat 2.504s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
 | Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; native toast/tray timing remains | 2026-08-22 |
 
 Baseline commands:
@@ -220,7 +227,6 @@ python main.py
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
 - Chat is intentionally single-turn and has no bounded conversation persistence.
-- Both CET levels receive their initial release timestamps on first import. Changing `STUDY_LEVEL` long after installation can therefore expose a large already-due backlog in the newly selected level; level activation needs an explicit release-rebase policy.
 - Dashboard, due-queue, and reminder reads still run synchronously on the GUI thread and can visibly pause if another process holds the SQLite database lock.
 - Multiple application instances serialize review writes but do not coordinate active-review reminder suppression, so duplicate cross-process notifications remain possible.
 - Structured AI fields and the visible in-session chat transcript do not yet have explicit size/count budgets.
@@ -267,6 +273,8 @@ python main.py
 31. Bundled metadata ownership: validated bundled word metadata may be corrected on later startup, but importing vocabulary must never replace a user's LearningState, scheduling state, or ReviewLog history.
 32. Provider response shape: a syntactically valid but structurally invalid HTTP response is an unavailable-provider condition and must cross the adapter boundary as the project-defined safe exception.
 33. Safe presentation boundary: unexpected exception detail belongs in rotating logs; user-visible UI receives stable action-oriented text without filesystem, SQL, or transport internals.
+34. Independent level activation: a CET level's open wordbank release anchor is created only on first real activation. Only cards with no ReviewLog, no last review, and zero review count may be rebased; curated words and any learned state are immutable under this operation.
+35. Convergent bootstrap: connection-level WAL negotiation receives the same bounded busy tolerance as transactional writes, every first-start mutation remains serialized and idempotent, and the bootstrap function owns disposal whenever it cannot return a usable Database.
 
 ## 8. Development constraints
 

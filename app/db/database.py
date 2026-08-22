@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -11,6 +13,9 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.migrations import upgrade_schema
+
+SQLITE_BUSY_TIMEOUT_SECONDS = 15.0
+SQLITE_BUSY_RETRY_SECONDS = 0.05
 
 
 class DatabaseBusyError(RuntimeError):
@@ -27,7 +32,10 @@ class Database:
             url,
             echo=echo,
             future=True,
-            connect_args={"check_same_thread": False, "timeout": 15}
+            connect_args={
+                "check_same_thread": False,
+                "timeout": SQLITE_BUSY_TIMEOUT_SECONDS,
+            }
             if url.startswith("sqlite")
             else {},
         )
@@ -45,9 +53,27 @@ class Database:
         @event.listens_for(engine, "connect")
         def set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
             cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA foreign_keys=ON")
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.close()
+            try:
+                cursor.execute(
+                    f"PRAGMA busy_timeout={int(SQLITE_BUSY_TIMEOUT_SECONDS * 1000)}"
+                )
+                cursor.execute("PRAGMA foreign_keys=ON")
+                deadline = time.monotonic() + SQLITE_BUSY_TIMEOUT_SECONDS
+                while True:
+                    try:
+                        cursor.execute("PRAGMA journal_mode=WAL")
+                        break
+                    except sqlite3.OperationalError as exc:
+                        message = str(exc).lower()
+                        remaining = deadline - time.monotonic()
+                        if (
+                            not ("locked" in message or "busy" in message)
+                            or remaining <= 0
+                        ):
+                            raise
+                        time.sleep(min(SQLITE_BUSY_RETRY_SECONDS, remaining))
+            finally:
+                cursor.close()
 
     def upgrade_schema(self) -> int:
         """Apply every pending database migration and return the version."""

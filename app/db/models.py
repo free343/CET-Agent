@@ -207,6 +207,27 @@ class EmbeddingCache(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
 
 
+class StudyLevelActivation(Base):
+    """Persist the first real activation of each independently staged level."""
+
+    __tablename__ = "study_level_activations"
+    __table_args__ = (
+        CheckConstraint(
+            "rebased_word_count >= 0",
+            name="ck_level_activation_rebased_count",
+        ),
+    )
+
+    level: Mapped[WordLevel] = mapped_column(
+        SqlEnum(WordLevel, native_enum=False),
+        primary_key=True,
+    )
+    activated_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    schedule_rebased: Mapped[bool] = mapped_column(Boolean, default=False)
+    rebased_word_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+
 class ReminderRuntimeState(Base):
     """Single-user persisted reminder cooldown and completion state."""
 

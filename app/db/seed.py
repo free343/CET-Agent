@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -109,7 +110,13 @@ def load_vocabulary_rows(csv_path: Path) -> list[VocabularySeedRow]:
 
 
 def seed_words(session: Session, csv_path: Path) -> int:
-    rows = load_vocabulary_rows(csv_path)
+    return seed_vocabulary_rows(session, load_vocabulary_rows(csv_path))
+
+
+def seed_vocabulary_rows(
+    session: Session,
+    rows: Sequence[VocabularySeedRow],
+) -> int:
     existing = {word.word: word for word in session.scalars(select(Word)).all()}
     inserted = 0
     seeded_at = utc_now()
