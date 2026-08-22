@@ -74,6 +74,16 @@ def test_contextual_example_question_keeps_example_specific_instructions() -> No
     assert "替换练习：" in prompt
 
 
+def test_memory_prompt_defines_a_safe_empty_example_fallback() -> None:
+    messages = chat_messages(
+        "government 怎么记？",
+        context="word=government\nmeaning=n. 政府；治理\nexample=",
+    )
+
+    assert "example 为空" in messages[-1]["content"]
+    assert "中文义 → 英文填空" in messages[-1]["content"]
+
+
 def test_history_rejects_invalid_budgets() -> None:
     with pytest.raises(ValueError):
         bounded_chat_history([], max_exchanges=0)

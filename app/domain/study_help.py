@@ -37,26 +37,38 @@ def ground_contextual_memory_answer(
     word = fields["word"]
     meaning = fields["meaning"]
     example = fields["example"]
-    if not word or not meaning or not example:
+    if not word or not meaning:
         return model_answer
 
-    word_pattern = re.compile(
-        rf"(?<![A-Za-z]){re.escape(word)}(?![A-Za-z])",
-        flags=re.IGNORECASE,
-    )
-    cloze, replacements = word_pattern.subn("____", example, count=1)
-    if replacements != 1:
-        return model_answer
+    if example:
+        word_pattern = re.compile(
+            rf"(?<![A-Za-z]){re.escape(word)}(?![A-Za-z])",
+            flags=re.IGNORECASE,
+        )
+        cloze, replacements = word_pattern.subn("____", example, count=1)
+        if replacements != 1:
+            return model_answer
+        hook = f"“{example}” = {meaning}"
+        recall = f"“{cloze}”（提示：{meaning}）"
+    else:
+        hook = f"“{word}” = {meaning}"
+        recall = f"{meaning} → ____（写出英文单词）"
 
     scene = _extract_scene(model_answer)
     if not scene:
-        scene = f"把词卡例句“{example}”想象成一个连续发生的动作场景。"
+        scene = (
+            f"把词卡例句“{example}”想象成一个连续发生的动作场景。"
+            if example
+            else f"想象一个能表现“{meaning}”的人物、动作和结果。"
+        )
+    warning_source = "例句" if example else "已保存词义"
 
     return (
-        f"记忆钩子：“{example}” = {meaning}\n"
+        f"记忆钩子：{hook}\n"
         f"场景联想：{scene}\n"
-        f"主动回忆：“{cloze}”（提示：{meaning}）\n"
-        "误区提醒：这是一条例句联想，不是词源；先掌握词卡中的已保存词义，"
+        f"主动回忆：{recall}\n"
+        f"误区提醒：这是基于{warning_source}的联想，不是词源；"
+        "先掌握词卡中的已保存词义，"
         "其他义项再用独立例句巩固。"
     )
 

@@ -288,3 +288,26 @@ def test_contextual_memory_answer_is_grounded_by_the_word_card(database) -> None
     assert "“Students adapt quickly to new environments.” = 适应；改编" in answer.text
     assert "Students ____ quickly to new environments." in answer.text
     assert "学生进入新学校后调整习惯，很快融入新环境。" in answer.text
+
+
+def test_contextual_memory_answer_without_example_uses_meaning_recall(database) -> None:
+    provider = FakeProvider(
+        [
+            (
+                "记忆钩子：government 的 govern 是可靠词根。\n"
+                "场景联想：市民在政府服务大厅办理证件。\n"
+                "主动回忆：反复背诵。"
+            )
+        ]
+    )
+
+    answer = AIService(database, provider).ask(
+        "government 怎么记？",
+        context="word=government\nmeaning=n. 政府；治理\nexample=",
+    )
+
+    assert "government 的 govern" not in answer.text
+    assert "反复背诵" not in answer.text
+    assert "“government” = n. 政府；治理" in answer.text
+    assert "n. 政府；治理 → ____（写出英文单词）" in answer.text
+    assert "市民在政府服务大厅办理证件。" in answer.text

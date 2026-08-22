@@ -139,7 +139,7 @@ Local Ollama:
 - Questions above 4,000 normalized characters are refused before any Provider call. Providers request at most 2,048 output tokens, ordinary answers are bounded to 4,000 characters, model names to 200 characters, and the Chat/Analysis text documents retain only 200/300 blocks respectively.
 - Chat keeps at most the four most recent successful in-session exchanges and applies a separate 6,000-character history budget before prompt construction. Failed, degraded, refused, and incomplete exchanges are never retained; history is intentionally memory-only and disappears when the application closes.
 - `ChatPanel` is reusable as both the full assistant page and a collapsible right-side review assistant. The compact panel captures a labeled snapshot of only the current word at send time, offers three quick questions, and passes at most 2,500 context characters through the centralized Prompt layer. Its input focus is outside review-shortcut scope.
-- Contextual help uses explicit small-model task prompts. Example questions request sentence meaning, in-sentence usage, and a substitution exercise. Memory questions prohibit invented etymology, roots, affixes, homophones, and letter stories. `app/domain/study_help.py` then deterministically derives the displayed example/meaning hook and cloze recall question from the captured card while retaining only the model's bounded scene visualization; weak model-generated hooks and generic study advice cannot reach the learner.
+- Contextual help uses explicit small-model task prompts. Example questions request sentence meaning, in-sentence usage, and a substitution exercise. Memory questions prohibit invented etymology, roots, affixes, homophones, and letter stories. `app/domain/study_help.py` then deterministically derives the displayed example/meaning hook and recall question from the captured card while retaining only the model's bounded scene visualization; cards without an example fall back to an exact word/meaning hook and Chinese-meaning-to-English recall. Weak model-generated hooks and generic study advice cannot reach the learner.
 
 ### Reminder and desktop lifecycle
 
@@ -185,7 +185,7 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 194 passed in 7.53s | 2026-08-22 |
+| Full pytest suite | 196 passed in 7.22s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
 | Ruff format gate | 95 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 61 source files | 2026-08-22 |
@@ -227,11 +227,11 @@ Update this section after every material change. Never report a feature as verif
 | Semantic graph rebuild | 7 candidates, 5 edges, 3 clusters; `embedding_available=true` | 2026-08-22 |
 | Structured cluster JSON and AI cache hit | first live result `cached=false`; second `cached=true`; Pydantic passed | 2026-08-22 |
 | Latest warm full local-AI validation | exit code 0 on schema v5 repeat startup; chat 1.087s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
-| Live contextual review answer | right-panel-equivalent `adapt` memory request returned a non-degraded `qwen2.5:3b` scene wrapped by an exact stored example/meaning hook and deterministic `Students ____ quickly to new environments.` recall item; invented hook content was excluded | 2026-08-22 |
+| Live contextual review answer | `adapt` returned a non-degraded 3B scene wrapped by its exact example/meaning hook and deterministic `Students ____ quickly to new environments.` item; no-example `government` returned an exact stored word/meaning hook plus `n. 政府, 内阁 → ____`; invented hook content was excluded in both paths | 2026-08-22 |
 | Live uncached bounded structured output | `accept/except` analysis under the 2,048-token Provider limit returned non-degraded schema-valid output for both words; 829 JSON characters | 2026-08-22 |
 | Frozen writable-path resolution | source/frozen/local-app-data/home-fallback/relative-database cases plus non-overwriting `.env.example` install passed | 2026-08-22 |
 | Windows onedir package | schema-v5/grounded-memory rebuild includes Windows-Toasts/WinRT binaries and distribution license metadata; isolated smoke exited 0, created schema v5 with 4,611 words and `integrity_check=ok`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
-| Unsigned Windows installer | Inno Setup 6.7.3 compiled the current `CET-Agent-Setup-0.1.0.exe` (44.71 MiB, SHA-256 `1B24A0755FBCB7481E473427094456A8C5BCABE9282FE149CCDECB18ADF5C83C`, intentionally `NotSigned`). The unchanged current-user install/uninstall flow previously passed executable/shortcut/registry creation, installed smoke, and byte-for-byte learning-data preservation | 2026-08-22 |
+| Unsigned Windows installer | Inno Setup 6.7.3 compiled the final schema-v5/grounded-memory `CET-Agent-Setup-0.1.0.exe` (44.70 MiB, SHA-256 `D46E6300B42EA162D5D06247D441271F015C614A7FF2296B1DDF651A644A58C9`, intentionally `NotSigned`). The unchanged current-user install/uninstall flow previously passed executable/shortcut/registry creation, installed smoke, and byte-for-byte learning-data preservation | 2026-08-22 |
 | Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; Snooze then immediate close exited with zero process/lease remnants; a controlled 15-second local Provider proved close began with two live workers before the response and exited automatically after completion; final installed build visibly rendered the actionable in-app reminder while the matching native Toast existed in Windows history | 2026-08-22 |
 
 Baseline commands:
@@ -319,7 +319,7 @@ python main.py
 49. Voluntary staged continuation: extra learning is an explicit five-card transaction over untouched future cards for one selected level. Existing due work blocks the unlock, reviewed cards are immutable, and completing the current pack is required before requesting another.
 50. Snapshot contextual assistance: the embedded assistant captures only the current ReviewItem when Send is pressed, labels that word in the transcript, bounds context in the Prompt layer, and shares the existing Provider/routing rules without sharing a worker or history with the full assistant page.
 51. Synthetic evidence isolation: `demo_confusion` ReviewLogs may drive the repeatable analysis demo, but they are not user reviews and must never alter LearningState aggregates or FSRS card state. Schema v5 repairs already polluted databases without deleting graph evidence.
-52. Grounded small-model memory help: the local model may visualize only the supplied example scene. The application deterministically owns the displayed example/meaning hook and cloze recall item, so a 3B model cannot present invented etymology, roots, homophones, or empty repetition advice as learning facts.
+52. Grounded small-model memory help: the local model may visualize only a scene from the supplied example or meaning. The application deterministically owns the displayed example/meaning hook and recall item, including a meaning-to-English fallback for cards without examples, so a 3B model cannot present invented etymology, roots, homophones, or empty repetition advice as learning facts.
 
 ## 8. Development constraints
 
