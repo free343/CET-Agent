@@ -313,6 +313,11 @@ class MainWindow(QMainWindow):
             return
         worker.setProperty("cet_close_watched", True)
         worker.finished.connect(self._schedule_deferred_close)
+        # The worker can finish between _active_workers() and this connection.
+        # Re-check after connecting so a fast final database task cannot hide
+        # the window forever after its finished signal was already emitted.
+        if not worker.isRunning():
+            self._schedule_deferred_close()
 
     def _close_if_idle(self) -> None:
         if not self._closing_after_workers:

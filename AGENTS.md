@@ -148,7 +148,7 @@ Local Ollama:
 - Each application process owns a renewable 10-minute active-review lease. Entering/reviewing publishes it, leaving or closing releases it, expired leases are deleted during evaluation, and any live instance lease suppresses notifications across all windows.
 - `app/infrastructure/notification_adapter.py` provides a Qt system-tray notification.
 - `app/ui/widgets/reminder_banner.py` contains the actionable “start review” and “snooze 30 minutes” buttons.
-- `app/ui/main_window.py` waits for active dashboard, review, analysis, chat, and reminder QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues. The smoke path closes the real window instead of terminating the event loop around live workers, and deferred close explicitly ends the application after a hidden window has released its final lease.
+- `app/ui/main_window.py` waits for active dashboard, review, analysis, chat, and reminder QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues. Attaching a close watcher is followed by an `isRunning()` re-check, so a worker that finishes between discovery and signal connection cannot leave the hidden window waiting forever. The smoke path closes the real window instead of terminating the event loop around live workers, and deferred close explicitly ends the application after a hidden window has released its final lease.
 
 ### Resilience and diagnostics
 
@@ -176,7 +176,7 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 167 passed in 5.92s | 2026-08-22 |
+| Full pytest suite | 168 passed in 6.38s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
 | Ruff format gate | 87 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 56 source files | 2026-08-22 |
@@ -204,7 +204,7 @@ Update this section after every material change. Never report a feature as verif
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup/shutdown smoke | 10 consecutive exit-code-0 runs; subprocess regression passed; real close path waits for lease-release worker and explicitly quits after hidden deferred close, eliminating the prior `0xC0000409` crash and post-close hang | 2026-08-22 |
+| Offscreen startup/shutdown smoke | 20 consecutive exit-code-0 runs; subprocess regression passed; real close path waits for lease-release worker and explicitly quits after hidden deferred close, eliminating the prior `0xC0000409` crash and post-close hang | 2026-08-22 |
 | SQLite integrity and foreign keys | schema v4; 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations; no stale review leases | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
@@ -215,7 +215,7 @@ Update this section after every material change. Never report a feature as verif
 | Live uncached bounded structured output | `accept/except` analysis under the 2,048-token Provider limit returned non-degraded schema-valid output for both words; 829 JSON characters | 2026-08-22 |
 | Frozen writable-path resolution | source/frozen/local-app-data/home-fallback/relative-database cases plus non-overwriting `.env.example` install passed | 2026-08-22 |
 | Windows onedir package | rebuilt with the bounded-chat/shutdown changes; packaged smoke exited 0, created schema v4 with 4,611 words and `integrity_check=ok` under isolated `LOCALAPPDATA`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
-| Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; native toast/tray timing remains | 2026-08-22 |
+| Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; Snooze then immediate close exited with zero process/lease remnants; a controlled 15-second local Provider proved close began with two live workers before the response and exited automatically after completion | 2026-08-22 |
 
 Baseline commands:
 
@@ -241,12 +241,11 @@ python main.py
 ### P2: product completeness
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
-- Complete the remaining native Windows validation for tray/toast behavior, real 30-minute snooze timing, and closing during an uncached active AI request.
+- Complete the remaining native Windows validation for tray/toast presentation and real 30-minute snooze expiry timing. Closing during a confirmed active uncached Provider request is now verified.
 
 ### P3: delivery engineering
 
-- The onedir Windows release is repeatable and smoke-tested, but there is no signed installer, application icon/version resource, or code-signing pipeline yet.
-- The CI workflow has no hosted run evidence until a Git remote is configured and the branch is pushed.
+- The onedir Windows release is repeatable and smoke-tested, but there is no installer yet. Application icon/version resources, digital signatures/code-signing, and Git-remote/hosted-CI work are explicitly deferred by current user direction and are not part of the active closure scope.
 
 ## 7. Key design decisions
 
@@ -292,6 +291,7 @@ python main.py
 40. Frozen path ownership: packaged resources are immutable inputs, while every mutable artifact belongs under a per-user local application-data root. Source mode intentionally preserves repository-local paths for developer ergonomics; packaged smoke must override `LOCALAPPDATA` and prove the distribution tree stays unchanged.
 41. Ephemeral bounded conversation: follow-up questions may use only recent complete successful exchanges, capped independently by count and characters. Conversation state belongs to the current Chat page, is never written to SQLite, and cannot turn a refused or degraded response into future prompt context.
 42. Event-loop-owned shutdown: smoke and interactive close both enter the real window close path. Application exit occurs only after every page/reminder worker has finished and the process-owned review lease has been released, including when the window is already hidden during deferred close.
+43. Lost-finish recovery: a close watcher must connect to `finished` before checking the worker state again. The signal covers future completion and the post-connection state check covers completion that raced ahead of the connection; duplicate deferred-close scheduling is harmless and preferable to a hidden hung process.
 
 ## 8. Development constraints
 

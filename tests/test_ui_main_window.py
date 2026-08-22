@@ -126,6 +126,42 @@ def test_active_workers_include_dashboard_and_review_tasks() -> None:
     ]
 
 
+def test_close_watcher_recovers_worker_that_finished_before_signal_connection() -> None:
+    class FakeSignal:
+        def __init__(self) -> None:
+            self.callbacks = []
+
+        def connect(self, callback) -> None:
+            self.callbacks.append(callback)
+
+    class JustFinishedWorker:
+        def __init__(self) -> None:
+            self.watched = False
+            self.finished = FakeSignal()
+
+        def property(self, _name: str) -> bool:
+            return self.watched
+
+        def setProperty(self, _name: str, value: bool) -> None:
+            self.watched = value
+
+        @staticmethod
+        def isRunning() -> bool:
+            return False
+
+    scheduled: list[bool] = []
+    window_like = SimpleNamespace(
+        _schedule_deferred_close=lambda: scheduled.append(True)
+    )
+    worker = JustFinishedWorker()
+
+    MainWindow._watch_worker_for_close(window_like, worker)
+    MainWindow._watch_worker_for_close(window_like, worker)
+
+    assert len(worker.finished.callbacks) == 1
+    assert scheduled == [True]
+
+
 def test_inactive_review_enqueues_completion_check() -> None:
     reminder_service = FakeReminderService()
     queued: list[tuple[str, object, bool]] = []
