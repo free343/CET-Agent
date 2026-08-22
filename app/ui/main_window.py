@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
         if index == 0:
             self.dashboard_page.refresh()
         elif index == 1:
+            self._review_session_changed(True)
             self.review_page.load_queue()
         elif index == 2:
             self.analysis_page.refresh()
@@ -171,8 +172,14 @@ class MainWindow(QMainWindow):
             # Manual navigation to Review must dismiss an already visible
             # reminder just like the banner's own "start review" action.
             self.reminder_banner.hide()
-        if not active and self.reminder_service.remaining_due_count() == 0:
-            self.reminder_service.mark_today_completed()
+        if not active:
+            try:
+                remaining_due = self.reminder_service.remaining_due_count()
+            except Exception:
+                logger.exception("Could not check remaining review count")
+                return
+            if remaining_due == 0:
+                self.reminder_service.mark_today_completed()
 
     def closeEvent(self, event) -> None:
         active_workers = self._active_workers()
@@ -189,13 +196,18 @@ class MainWindow(QMainWindow):
                     len(active_workers),
                 )
                 for worker in active_workers:
-                    worker.finished.connect(self._schedule_deferred_close)
+                    self._watch_worker_for_close(worker)
             return
         self.notification_adapter.close()
         super().closeEvent(event)
 
     def _active_workers(self) -> list:
-        workers = (self.analysis_page.worker, self.chat_page.worker)
+        workers = (
+            self.dashboard_page.worker,
+            self.review_page.worker,
+            self.analysis_page.worker,
+            self.chat_page.worker,
+        )
         return [
             worker for worker in workers if worker is not None and worker.isRunning()
         ]
@@ -203,7 +215,19 @@ class MainWindow(QMainWindow):
     def _schedule_deferred_close(self) -> None:
         QTimer.singleShot(0, self._close_if_idle)
 
+    def _watch_worker_for_close(self, worker) -> None:
+        if worker.property("cet_close_watched"):
+            return
+        worker.setProperty("cet_close_watched", True)
+        worker.finished.connect(self._schedule_deferred_close)
+
     def _close_if_idle(self) -> None:
-        if self._closing_after_workers and not self._active_workers():
-            self._closing_after_workers = False
-            self.close()
+        if not self._closing_after_workers:
+            return
+        active_workers = self._active_workers()
+        if active_workers:
+            for worker in active_workers:
+                self._watch_worker_for_close(worker)
+            return
+        self._closing_after_workers = False
+        self.close()

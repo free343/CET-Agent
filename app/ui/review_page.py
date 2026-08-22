@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.domain.fsrs_scheduler import Rating
-from app.services.review_service import ReviewItem, ReviewService
+from app.services.review_service import ReviewItem, ReviewService, ReviewSubmission
+from app.ui.widgets.async_worker import AsyncWorker
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class ReviewPage(QWidget):
     def __init__(
         self,
         service: ReviewService,
-        on_reviewed: Callable[[], None] | None = None,
+        on_reviewed: Callable[[], object] | None = None,
         on_session_state_changed: Callable[[bool], None] | None = None,
     ) -> None:
         super().__init__()
@@ -37,6 +38,9 @@ class ReviewPage(QWidget):
         self.on_session_state_changed = on_session_state_changed
         self.queue: list[ReviewItem] = []
         self.current: ReviewItem | None = None
+        self.worker: AsyncWorker | None = None
+        self.worker_action: str | None = None
+        self._load_after_worker = False
         self.started_at = time.monotonic()
 
         outer = QVBoxLayout(self)
@@ -110,26 +114,31 @@ class ReviewPage(QWidget):
             QShortcut(QKeySequence(key), self, partial(self.submit, rating))
         self._set_ratings_enabled(False)
 
-    def load_queue(self) -> None:
-        try:
-            self.queue = self.service.get_due_words()
-            if self.on_session_state_changed:
-                self.on_session_state_changed(bool(self.queue))
-            self._show_next()
-        except Exception:  # GUI boundary: log detail, show safe message.
-            logger.exception("Could not load review queue")
-            self.queue = []
-            self.current = None
-            if self.on_session_state_changed:
-                self.on_session_state_changed(False)
-            self.word_label.setText("暂时无法加载复习任务")
-            self.phonetic_label.clear()
-            self.answer_label.clear()
-            self.example_label.clear()
-            self.reveal_button.setEnabled(False)
-            self._set_ratings_enabled(False)
-            self.progress.clear()
-            self._show_error("暂时无法读取复习任务，请稍后重试。")
+    def load_queue(self) -> bool:
+        if self.worker is not None:
+            return False
+        self.queue = []
+        self.current = None
+        self.word_label.setText("正在加载复习任务…")
+        self.phonetic_label.clear()
+        self.answer_label.clear()
+        self.example_label.clear()
+        self.reveal_button.setEnabled(False)
+        self._set_ratings_enabled(False)
+        self.progress.clear()
+        self.worker_action = "load"
+        self.worker = AsyncWorker(self.service.get_due_words, parent=self)
+        self.worker.result_ready.connect(self._queue_loaded)
+        self.worker.failed.connect(self._task_failed)
+        self.worker.finished.connect(self._worker_finished)
+        self.worker.start()
+        return True
+
+    def _queue_loaded(self, items: list[ReviewItem]) -> None:
+        self.queue = list(items)
+        if self.queue and self.on_session_state_changed:
+            self.on_session_state_changed(True)
+        self._show_next()
 
     def _show_next(self) -> None:
         if not self.queue:
@@ -164,15 +173,28 @@ class ReviewPage(QWidget):
         self._set_ratings_enabled(True)
 
     def submit(self, rating: Rating) -> None:
-        if self.current is None or not self.rating_buttons[rating].isEnabled():
+        if (
+            self.worker is not None
+            or self.current is None
+            or not self.rating_buttons[rating].isEnabled()
+        ):
             return
         response_ms = int((time.monotonic() - self.started_at) * 1000)
-        try:
-            self.service.submit_review(self.current.word_id, rating, response_ms)
-        except Exception:  # GUI must survive database and validation errors.
-            logger.exception("Review submission failed")
-            self._show_error("本次记录未保存，请稍后重试。")
-            return
+        self._set_ratings_enabled(False)
+        self.worker_action = "submit"
+        self.worker = AsyncWorker(
+            self.service.submit_review,
+            self.current.word_id,
+            rating,
+            response_ms,
+            parent=self,
+        )
+        self.worker.result_ready.connect(self._review_saved)
+        self.worker.failed.connect(self._task_failed)
+        self.worker.finished.connect(self._worker_finished)
+        self.worker.start()
+
+    def _review_saved(self, _submission: ReviewSubmission) -> None:
         if self.on_reviewed:
             self.on_reviewed()
         if self.queue:
@@ -181,6 +203,41 @@ class ReviewPage(QWidget):
             # get_due_words is intentionally capped. After one batch finishes,
             # query again instead of incorrectly claiming that all work is done.
             self.current = None
+            self.word_label.setText("正在检查剩余复习任务…")
+            self.phonetic_label.clear()
+            self.answer_label.clear()
+            self.example_label.clear()
+            self.reveal_button.setEnabled(False)
+            self.progress.clear()
+            self._load_after_worker = True
+
+    def _task_failed(self, message: str) -> None:
+        if self.worker_action == "submit":
+            logger.error("Review submission failed: %s", message)
+            self._set_ratings_enabled(self.current is not None)
+            self._show_error("本次记录未保存，请稍后重试。")
+            return
+        logger.error("Could not load review queue: %s", message)
+        self.queue = []
+        self.current = None
+        if self.on_session_state_changed:
+            self.on_session_state_changed(False)
+        self.word_label.setText("暂时无法加载复习任务")
+        self.phonetic_label.clear()
+        self.answer_label.clear()
+        self.example_label.clear()
+        self.reveal_button.setEnabled(False)
+        self._set_ratings_enabled(False)
+        self.progress.clear()
+        self._show_error("暂时无法读取复习任务，请稍后重试。")
+
+    def _worker_finished(self) -> None:
+        if self.worker is not None:
+            self.worker.deleteLater()
+        self.worker = None
+        self.worker_action = None
+        if self._load_after_worker:
+            self._load_after_worker = False
             self.load_queue()
 
     def _set_ratings_enabled(self, enabled: bool) -> None:

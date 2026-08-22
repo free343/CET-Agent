@@ -1,4 +1,4 @@
-"""Tiny QThread wrapper keeping model/network work off the UI thread."""
+"""Tiny QThread wrapper keeping blocking work off the UI thread."""
 
 from __future__ import annotations
 

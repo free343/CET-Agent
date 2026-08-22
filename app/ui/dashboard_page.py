@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.services.learning_service import LearningService
+from app.services.learning_service import DashboardStats, LearningService
+from app.ui.widgets.async_worker import AsyncWorker
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ class DashboardPage(QWidget):
     def __init__(self, service: LearningService) -> None:
         super().__init__()
         self.service = service
+        self.worker: AsyncWorker | None = None
+        self._refresh_pending = False
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(18)
@@ -70,15 +73,18 @@ class DashboardPage(QWidget):
         layout.addWidget(wrong_card)
         layout.addStretch()
 
-    def refresh(self) -> None:
-        try:
-            stats = self.service.dashboard_stats()
-        except Exception:
-            logger.exception("Could not load dashboard statistics")
-            for card in (self.due, self.completed, self.accuracy, self.streak):
-                card.value.setText("—")
-            self.wrong_words.setText("暂时无法读取学习数据，请稍后重试。")
-            return
+    def refresh(self) -> bool:
+        if self.worker is not None:
+            self._refresh_pending = True
+            return False
+        self.worker = AsyncWorker(self.service.dashboard_stats, parent=self)
+        self.worker.result_ready.connect(self._show_stats)
+        self.worker.failed.connect(self._show_failure)
+        self.worker.finished.connect(self._worker_finished)
+        self.worker.start()
+        return True
+
+    def _show_stats(self, stats: DashboardStats) -> None:
         self.due.value.setText(str(stats.due_count))
         self.completed.value.setText(str(stats.today_completed))
         self.accuracy.value.setText(f"{stats.seven_day_accuracy:.1f}%")
@@ -92,3 +98,17 @@ class DashboardPage(QWidget):
             )
         else:
             self.wrong_words.setText("暂无错误记录，完成复习后会在这里显示。")
+
+    def _show_failure(self, message: str) -> None:
+        logger.error("Could not load dashboard statistics: %s", message)
+        for card in (self.due, self.completed, self.accuracy, self.streak):
+            card.value.setText("—")
+        self.wrong_words.setText("暂时无法读取学习数据，请稍后重试。")
+
+    def _worker_finished(self) -> None:
+        if self.worker is not None:
+            self.worker.deleteLater()
+        self.worker = None
+        if self._refresh_pending:
+            self._refresh_pending = False
+            self.refresh()

@@ -92,9 +92,9 @@ Local Ollama:
 - Review batches default to 30; completing one batch loads another when more words are already due.
 - `app/services/learning_service.py` derives dashboard metrics from ReviewLog rather than trusting only aggregate LearningState values.
 - Dashboard statistics ignore future-dated ReviewLog rows so clock/import anomalies cannot inflate completed counts, accuracy, streaks, or wrong-word rankings.
-- `app/ui/review_page.py` supports reveal plus Again/Hard/Good/Easy with Space/1/2/3/4 shortcuts.
+- `app/ui/review_page.py` supports reveal plus Again/Hard/Good/Easy with Space/1/2/3/4 shortcuts. Due-queue reads, review submissions, and post-batch queue reloads run through one page-owned `AsyncWorker`; controls remain guarded until each database operation completes.
 - Starting a review session from sidebar navigation dismisses any visible reminder banner, preventing stale counts from remaining above an active review.
-- `app/ui/dashboard_page.py` shows due count, completed today, seven-day accuracy, streak, and frequent wrong words.
+- `app/ui/dashboard_page.py` shows due count, completed today, seven-day accuracy, streak, and frequent wrong words. Statistics load off the GUI thread; refresh requests arriving during a load are coalesced into one follow-up refresh.
 
 ### Confusion analysis
 
@@ -142,7 +142,7 @@ Local Ollama:
 - A far-future persisted notification timestamp cannot suppress reminders indefinitely after a system-clock correction; only a small rollback within the configured cooldown remains suppressed.
 - `app/infrastructure/notification_adapter.py` provides a Qt system-tray notification.
 - `app/ui/widgets/reminder_banner.py` contains the actionable “start review” and “snooze 30 minutes” buttons.
-- `app/ui/main_window.py` waits for active AI QThreads before destroying the window, preventing shutdown crashes.
+- `app/ui/main_window.py` waits for active dashboard, review, analysis, and chat QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues.
 
 ### Resilience and diagnostics
 
@@ -151,7 +151,7 @@ Local Ollama:
 - Analysis refresh clears detached AI output and resets stale error status before presenting a new cluster snapshot.
 - Unexpected UI and startup exceptions are logged with full detail but converted to stable generic user messages; filesystem, SQL, and transport details are not rendered.
 - While chat is waiting for a low-confidence routing choice, its pending question and input controls are locked so a second send cannot silently replace the first question.
-- Model/network work runs in `AsyncWorker` QThreads, not on the UI thread.
+- Blocking dashboard, review-database, model, and network work runs in `AsyncWorker` QThreads, not on the UI thread.
 - Detailed failures go to logs; user-facing messages remain concise.
 - Root logging configuration is serialized within the process, preventing concurrent bootstrap calls from registering duplicate rotating-file and console handlers.
 - pytest cacheprovider is disabled by `pytest.ini` to avoid cache-directory write failures in restricted environments.
@@ -169,10 +169,11 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 134 passed in 4.66s | 2026-08-22 |
+| Full pytest suite | 140 passed in 4.71s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 81 files already formatted | 2026-08-22 |
+| Ruff format gate | 82 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 54 source files | 2026-08-22 |
+| Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
 | Concurrent fresh bootstrap | three repeated two-worker runs on separate fresh databases all returned 4,611 words and one activation per worker; regression test also passed | 2026-08-22 |
 | Bootstrap/logging failure safety | forced schema-upgrade failure disposed its Database; simultaneous logging configuration registered exactly one file/console handler pair | 2026-08-22 |
 | Per-level first activation | fresh CET4 rebased exactly 3,320 untouched open words once; later CET6 activation independently rebased 1,278; repeat startup preserved the original activation | 2026-08-22 |
@@ -192,7 +193,7 @@ Update this section after every material change. Never report a feature as verif
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup smoke | exit code 0 on repeat schema-v3 startup; no duplicate import/state/activation work; prior 2→3 upgrade rebased exactly 3,320 untouched CET4 open words | 2026-08-22 |
+| Offscreen startup smoke | five consecutive schema-v3 startup/exit runs passed with asynchronous initial dashboard load; no QThread destruction or database-disposal failure | 2026-08-22 |
 | SQLite integrity and foreign keys | 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
@@ -227,7 +228,7 @@ python main.py
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
 - Chat is intentionally single-turn and has no bounded conversation persistence.
-- Dashboard, due-queue, and reminder reads still run synchronously on the GUI thread and can visibly pause if another process holds the SQLite database lock.
+- Reminder timer evaluation, post-session remaining-due confirmation, snooze, and completion persistence still run synchronously on the GUI thread. Move them behind one serialized reminder-task boundary so ReminderService's in-memory state cannot race across workers.
 - Multiple application instances serialize review writes but do not coordinate active-review reminder suppression, so duplicate cross-process notifications remain possible.
 - Structured AI fields and the visible in-session chat transcript do not yet have explicit size/count budgets.
 - Complete the remaining native Windows validation for tray/toast behavior, real 30-minute snooze timing, and closing during an uncached active AI request.
@@ -275,6 +276,7 @@ python main.py
 33. Safe presentation boundary: unexpected exception detail belongs in rotating logs; user-visible UI receives stable action-oriented text without filesystem, SQL, or transport internals.
 34. Independent level activation: a CET level's open wordbank release anchor is created only on first real activation. Only cards with no ReviewLog, no last review, and zero review count may be rebased; curated words and any learned state are immutable under this operation.
 35. Convergent bootstrap: connection-level WAL negotiation receives the same bounded busy tolerance as transactional writes, every first-start mutation remains serialized and idempotent, and the bootstrap function owns disposal whenever it cannot return a usable Database.
+36. Page-owned background work: each interactive page permits at most one database/model worker at a time, renders results only on the Qt thread, and exposes its active worker to the main-window deferred-close coordinator. Dashboard refreshes coalesce; review submissions preserve the current card until persistence succeeds.
 
 ## 8. Development constraints
 
