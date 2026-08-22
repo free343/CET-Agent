@@ -26,12 +26,15 @@ from app.services.review_service import (
     ReviewItem,
     ReviewService,
     ReviewSubmission,
+    ReviewUndoResult,
 )
 from app.ui.chat_page import ChatContext, ChatPanel, ChatService
 from app.ui.widgets.async_worker import AsyncWorker
 from app.ui.widgets.review_card import ReviewCardWidget
 
 logger = logging.getLogger(__name__)
+
+RATING_SHORTCUT_GUARD_SECONDS = 0.45
 
 
 class ReviewPage(QWidget):
@@ -55,6 +58,12 @@ class ReviewPage(QWidget):
         self.choice_correct: bool | None = None
         self.used_hint = False
         self.started_at = time.monotonic()
+        self._rating_shortcuts_ready_at = float("inf")
+        self._session_completed = 0
+        self._session_loaded = 0
+        self._pending_review_item: ReviewItem | None = None
+        self._last_reviewed_item: ReviewItem | None = None
+        self._last_submission: ReviewSubmission | None = None
 
         workspace = QHBoxLayout(self)
         workspace.setContentsMargins(0, 0, 0, 0)
@@ -81,10 +90,12 @@ class ReviewPage(QWidget):
         card = ReviewCardWidget(
             on_reveal=self.reveal_answer,
             on_unlock=self.unlock_extra_study,
+            on_undo=self.undo_last_review,
             on_choice=self.select_meaning,
             on_rating=self.submit,
         )
         self.word_label = card.word_label
+        self.phase_label = card.phase_label
         self.phonetic_label = card.phonetic_label
         self.answer_label = card.answer_label
         self.example_label = card.example_label
@@ -94,6 +105,7 @@ class ReviewPage(QWidget):
         self.choice_buttons = self.choice_widget.buttons
         self.reveal_button = card.reveal_button
         self.continue_button = card.continue_button
+        self.undo_button = card.undo_button
         self.rating_buttons = card.rating_buttons
         outer.addWidget(card)
         outer.addStretch()
@@ -131,13 +143,25 @@ class ReviewPage(QWidget):
                 partial(self._handle_number_key, index),
             )
             shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        undo_shortcut = QShortcut(
+            QKeySequence("Ctrl+Z"), learning_area, self.undo_last_review
+        )
+        undo_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._set_ratings_enabled(False)
 
     def load_queue(self) -> bool:
+        return self._start_queue_load(reset_progress=True)
+
+    def _start_queue_load(self, *, reset_progress: bool) -> bool:
         if self.worker is not None:
             return False
+        if reset_progress:
+            self._session_completed = 0
+            self._session_loaded = 0
+            self._clear_undo()
         self.queue = []
         self.current = None
+        self.phase_label.setText("正在加载")
         self.word_label.setText("正在加载复习任务…")
         self.phonetic_label.clear()
         self.answer_label.clear()
@@ -157,6 +181,7 @@ class ReviewPage(QWidget):
 
     def _queue_loaded(self, items: list[ReviewItem]) -> None:
         self.queue = list(items)
+        self._session_loaded += len(self.queue)
         if self.queue and self.on_session_state_changed:
             self.on_session_state_changed(True)
         self._show_next()
@@ -176,9 +201,15 @@ class ReviewPage(QWidget):
             self.continue_button.setEnabled(True)
             self.continue_button.show()
             self._set_ratings_enabled(False)
-            self.progress.setText("0 个待复习")
+            self.phase_label.setText("本轮完成")
+            if self._session_completed:
+                self.progress.setText(f"本轮已完成 {self._session_completed} 个")
+            else:
+                self.progress.setText("0 个待复习")
+            self._refresh_undo_button()
             return
         self.current = self.queue.pop(0)
+        self.phase_label.setText("阶段 1/2 · 选择释义")
         self.word_label.setText(self.current.word)
         self.phonetic_label.setText(self.current.phonetic)
         self.answer_label.clear()
@@ -190,8 +221,14 @@ class ReviewPage(QWidget):
         self.reveal_button.setText("想不起来，显示释义  Space")
         self.reveal_button.show()
         self._set_ratings_enabled(False)
-        self.progress.setText(f"还剩 {len(self.queue) + 1} 个")
+        current_number = self._session_completed + 1
+        known_total = max(current_number, self._session_loaded)
+        self.progress.setText(
+            f"本轮 {current_number}/{known_total} · 本批剩余 {len(self.queue) + 1}"
+        )
         self.started_at = time.monotonic()
+        self._rating_shortcuts_ready_at = float("inf")
+        self._refresh_undo_button()
 
     def reveal_answer(self) -> None:
         if (
@@ -208,6 +245,10 @@ class ReviewPage(QWidget):
         self.choice_widget.disable_and_highlight()
         self.reveal_button.hide()
         self._set_ratings_enabled(True)
+        self._rating_shortcuts_ready_at = (
+            time.monotonic() + RATING_SHORTCUT_GUARD_SECONDS
+        )
+        self.phase_label.setText("阶段 2/2 · 评价回忆难度")
 
     def select_meaning(self, index: int) -> None:
         if self.current is None:
@@ -227,6 +268,10 @@ class ReviewPage(QWidget):
         self.example_label.setText(self.current.example)
         self.reveal_button.hide()
         self._set_ratings_enabled(True)
+        self._rating_shortcuts_ready_at = (
+            time.monotonic() + RATING_SHORTCUT_GUARD_SECONDS
+        )
+        self.phase_label.setText("阶段 2/2 · 评价回忆难度")
 
     def submit(self, rating: Rating) -> None:
         if (
@@ -236,7 +281,10 @@ class ReviewPage(QWidget):
         ):
             return
         response_ms = int((time.monotonic() - self.started_at) * 1000)
+        self._pending_review_item = self.current
         self._set_ratings_enabled(False)
+        self.undo_button.setEnabled(False)
+        self.phase_label.setText("正在保存评分…")
         self.worker_action = "submit"
         self.worker = AsyncWorker(
             partial(
@@ -287,7 +335,14 @@ class ReviewPage(QWidget):
         self.continue_button.hide()
         self._load_after_worker = True
 
-    def _review_saved(self, _submission: ReviewSubmission) -> None:
+    def _review_saved(self, submission: ReviewSubmission) -> None:
+        if self._pending_review_item is None:
+            logger.error("Saved review has no pending UI item")
+            return
+        self._last_reviewed_item = self._pending_review_item
+        self._last_submission = submission
+        self._pending_review_item = None
+        self._session_completed += 1
         if self.on_reviewed:
             self.on_reviewed()
         if self.queue:
@@ -303,13 +358,78 @@ class ReviewPage(QWidget):
             self.choice_frame.hide()
             self.reveal_button.setEnabled(False)
             self.progress.clear()
+            self.phase_label.setText("正在检查剩余任务…")
             self._load_after_worker = True
+
+    def undo_last_review(self) -> None:
+        if (
+            self.worker is not None
+            or self._last_submission is None
+            or self._last_reviewed_item is None
+        ):
+            return
+        self._set_ratings_enabled(False)
+        self.continue_button.setEnabled(False)
+        self.undo_button.setEnabled(False)
+        self.phase_label.setText("正在撤销上一条评分…")
+        self.worker_action = "undo"
+        self.worker = AsyncWorker(
+            self.service.undo_review,
+            self._last_submission.review_log_id,
+            parent=self,
+        )
+        self.worker.result_ready.connect(self._review_undone)
+        self.worker.failed.connect(self._task_failed)
+        self.worker.finished.connect(self._worker_finished)
+        self.worker.start()
+
+    def _review_undone(self, result: ReviewUndoResult) -> None:
+        if (
+            self._last_submission is None
+            or self._last_reviewed_item is None
+            or result.review_log_id != self._last_submission.review_log_id
+        ):
+            logger.error("Undo result does not match the latest review")
+            return
+        if self.current is not None:
+            self.queue.insert(0, self.current)
+        self.queue.insert(0, self._last_reviewed_item)
+        self.current = None
+        self._session_completed = max(0, self._session_completed - 1)
+        self._clear_undo()
+        if self.on_reviewed:
+            self.on_reviewed()
+        if self.on_session_state_changed:
+            self.on_session_state_changed(True)
+        self._show_next()
 
     def _task_failed(self, message: str) -> None:
         if self.worker_action == "submit":
             logger.error("Review submission failed: %s", message)
+            self._pending_review_item = None
             self._set_ratings_enabled(self.current is not None)
+            self.phase_label.setText("阶段 2/2 · 评价回忆难度")
+            self._refresh_undo_button()
             self._show_error("本次记录未保存，请稍后重试。")
+            return
+        if self.worker_action == "undo":
+            logger.error("Could not undo review: %s", message)
+            if self.current is None:
+                self.continue_button.setEnabled(True)
+                self.phase_label.setText("本轮完成")
+            else:
+                self._set_ratings_enabled(
+                    self.choice_correct is not None
+                    or not self.reveal_button.isVisible()
+                )
+                self.phase_label.setText(
+                    "阶段 2/2 · 评价回忆难度"
+                    if self.choice_correct is not None
+                    or not self.reveal_button.isVisible()
+                    else "阶段 1/2 · 选择释义"
+                )
+            self._refresh_undo_button()
+            self._show_error("无法撤销上一条评分，学习记录未被更改。")
             return
         if self.worker_action == "unlock":
             logger.error("Could not unlock extra study: %s", message)
@@ -332,6 +452,8 @@ class ReviewPage(QWidget):
         self.continue_button.hide()
         self._set_ratings_enabled(False)
         self.progress.clear()
+        self.phase_label.setText("加载失败")
+        self._refresh_undo_button()
         self._show_error("暂时无法读取复习任务，请稍后重试。")
 
     def _worker_finished(self) -> None:
@@ -341,7 +463,9 @@ class ReviewPage(QWidget):
         self.worker_action = None
         if self._load_after_worker:
             self._load_after_worker = False
-            self.load_queue()
+            self._start_queue_load(reset_progress=False)
+            return
+        self._refresh_undo_button()
 
     def _set_ratings_enabled(self, enabled: bool) -> None:
         for rating, button in self.rating_buttons.items():
@@ -354,13 +478,28 @@ class ReviewPage(QWidget):
             return
         if self.choice_widget.choose_with_number(index):
             return
+        if time.monotonic() < self._rating_shortcuts_ready_at:
+            return
         self.submit(tuple(Rating)[index])
 
     def _reset_choice_state(self) -> None:
         self.selected_answer = ""
         self.choice_correct = None
         self.used_hint = False
+        self._rating_shortcuts_ready_at = float("inf")
         self.choice_widget.reset()
+
+    def _clear_undo(self) -> None:
+        self._last_reviewed_item = None
+        self._last_submission = None
+        self.undo_button.hide()
+
+    def _refresh_undo_button(self) -> None:
+        available = (
+            self._last_reviewed_item is not None and self._last_submission is not None
+        )
+        self.undo_button.setVisible(available)
+        self.undo_button.setEnabled(available and self.worker is None)
 
     def _show_error(self, message: str) -> None:
         QMessageBox.warning(self, "CET-Agent", message)

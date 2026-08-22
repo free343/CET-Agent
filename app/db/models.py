@@ -142,6 +142,14 @@ class ReviewLog(Base):
     new_stability: Mapped[float] = mapped_column(Float)
     previous_difficulty: Mapped[float] = mapped_column(Float)
     new_difficulty: Mapped[float] = mapped_column(Float)
+    previous_last_review_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime(), nullable=True
+    )
+    previous_next_review_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime(), nullable=True
+    )
+    previous_fsrs_state: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    previous_fsrs_step: Mapped[int | None] = mapped_column(Integer, nullable=True)
     scheduled_days: Mapped[float] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
 

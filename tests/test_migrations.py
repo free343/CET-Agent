@@ -293,6 +293,46 @@ def test_version_four_repairs_demo_counts_without_removing_demo_history(
         database.dispose()
 
 
+def test_version_five_adds_review_undo_snapshot_columns(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 5)"
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE review_logs (
+                    id INTEGER PRIMARY KEY
+                )
+                """
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+
+        columns = {
+            column["name"]
+            for column in inspect(database.engine).get_columns("review_logs")
+        }
+        assert {
+            "previous_last_review_at",
+            "previous_next_review_at",
+            "previous_fsrs_state",
+            "previous_fsrs_step",
+        }.issubset(columns)
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
 def test_newer_database_version_is_rejected(tmp_path) -> None:
     database = make_database(tmp_path)
     try:

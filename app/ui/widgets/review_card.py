@@ -17,6 +17,7 @@ class ReviewCardWidget(QFrame):
         *,
         on_reveal: Callable[[], None],
         on_unlock: Callable[[], None],
+        on_undo: Callable[[], None],
         on_choice: Callable[[int], None],
         on_rating: Callable[[Rating], None],
     ) -> None:
@@ -26,6 +27,8 @@ class ReviewCardWidget(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(44, 36, 44, 36)
         layout.setSpacing(14)
+        self.phase_label = self._centered_label("")
+        self.phase_label.setStyleSheet("color: #64748b; font-weight: 600;")
         self.word_label = self._centered_label("准备开始", "Word")
         self.phonetic_label = self._centered_label("", "Phonetic")
         self.answer_label = self._centered_label("")
@@ -43,6 +46,10 @@ class ReviewCardWidget(QFrame):
         self.continue_button.setObjectName("PrimaryButton")
         self.continue_button.clicked.connect(on_unlock)
         self.continue_button.hide()
+        self.undo_button = QPushButton("撤销上一条评分  Ctrl+Z")
+        self.undo_button.setToolTip("恢复该单词评分前的复习计划与统计")
+        self.undo_button.clicked.connect(on_undo)
+        self.undo_button.hide()
         self.rating_buttons: dict[Rating, QPushButton] = {}
         rating_row = QHBoxLayout()
         for rating, label in (
@@ -60,6 +67,7 @@ class ReviewCardWidget(QFrame):
             rating_row.addWidget(button)
 
         layout.addStretch()
+        layout.addWidget(self.phase_label)
         layout.addWidget(self.word_label)
         layout.addWidget(self.phonetic_label)
         layout.addSpacing(16)
@@ -70,6 +78,7 @@ class ReviewCardWidget(QFrame):
         layout.addWidget(self.reveal_button, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.continue_button, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addLayout(rating_row)
+        layout.addWidget(self.undo_button, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addStretch()
 
     @staticmethod

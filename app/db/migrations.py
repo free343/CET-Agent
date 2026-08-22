@@ -137,12 +137,37 @@ def _repair_demo_learning_states(connection: Connection) -> None:
     )
 
 
+def _add_review_undo_snapshots(connection: Connection) -> None:
+    """Add nullable pre-review state used by safe one-step undo.
+
+    Existing history intentionally remains non-undoable because reconstructing
+    its exact FSRS state from partial legacy data would be unsafe.
+    """
+    if "review_logs" not in inspect(connection).get_table_names():
+        return
+    columns = {
+        column["name"] for column in inspect(connection).get_columns("review_logs")
+    }
+    additions = {
+        "previous_last_review_at": "DATETIME",
+        "previous_next_review_at": "DATETIME",
+        "previous_fsrs_state": "INTEGER",
+        "previous_fsrs_step": "INTEGER",
+    }
+    for name, sql_type in additions.items():
+        if name not in columns:
+            connection.exec_driver_sql(
+                f"ALTER TABLE review_logs ADD COLUMN {name} {sql_type}"
+            )
+
+
 MIGRATIONS: dict[int, Migration] = {
     1: _create_initial_schema,
     2: _add_fsrs_card_state,
     3: _add_study_level_activation,
     4: _add_reminder_review_leases,
     5: _repair_demo_learning_states,
+    6: _add_review_undo_snapshots,
 }
 CURRENT_SCHEMA_VERSION = max(MIGRATIONS)
 

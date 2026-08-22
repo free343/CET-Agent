@@ -70,7 +70,7 @@ Local Ollama:
 ### Bootstrap and persistence
 
 - `app/bootstrap.py` configures logging, upgrades the database schema, validates and idempotently imports both bundled vocabulary files, creates missing LearningState rows, and activates the selected study level inside one serialized startup transaction. If any initialization step fails, it disposes the newly created Database/Engine before propagating the failure.
-- `app/db/migrations.py` owns the explicit sequential schema registry, currently version 5. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application. Schema v3 adds persistent per-level activation state; schema v4 adds per-instance active-review leases; schema v5 removes synthetic `demo_confusion` increments from FSRS aggregates while preserving the ReviewLog evidence used by the demo graph.
+- `app/db/migrations.py` owns the explicit sequential schema registry, currently version 6. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application. Schema v3 adds persistent per-level activation state; schema v4 adds per-instance active-review leases; schema v5 removes synthetic `demo_confusion` increments from FSRS aggregates while preserving the ReviewLog evidence used by the demo graph; schema v6 adds nullable pre-review FSRS snapshots for safe one-step undo without pretending legacy logs are reconstructible.
 - `app/config.py` loads the runtime `.env`, resolves relative SQLite paths from the writable runtime root, and owns all model, graph, reminder, and logging configuration.
 - `app/paths.py` separates read-only bundled resources from writable runtime state. Source execution keeps both at the repository root; a frozen executable reads vocabulary/config templates from `_MEIPASS` and writes database/log/config state under the user's local application-data directory.
 - Malformed environment values and unsafe model/graph/reminder configuration are rejected at startup: model endpoints must be absolute HTTP(S) URLs, thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
@@ -90,6 +90,7 @@ Local Ollama:
 - `STUDY_LEVEL` is validated as CET4 or CET6. Review queues, due counts, reminder inputs, and every dashboard statistic are restricted to the selected level.
 - The open wordbank stages each level independently from that level's first activation at no more than 20 newly due words per day; the 13 curated confusion examples remain immediately available and override any open-data duplicate.
 - Review timestamps must advance monotonically for each word, preventing delayed or duplicate submissions from moving a learning state backwards.
+- Every new ReviewLog stores the exact pre-review due time, prior review time, FSRS phase, and FSRS step in addition to the existing difficulty/stability fields. `ReviewService.undo_review` may delete only that card's latest review, restores the entire prior schedule plus counters in one serialized transaction, and rejects legacy/no-snapshot or superseded reviews without mutation.
 - Due ordering prioritizes longest overdue, then higher lapse count, then higher error count.
 - Review batches default to 30; completing one batch loads another when more words are already due.
 - `app/domain/meaning_quiz.py` deterministically selects one correct Chinese meaning plus three unique local-vocabulary distractors. It prefers compatible part-of-speech evidence and nearby frequency, never calls an LLM, and returns no quiz when four reliable choices are unavailable.
@@ -97,7 +98,7 @@ Local Ollama:
 - After all due work is complete, the learner may explicitly unlock five untouched future cards for the selected CET level. The serialized transaction refuses to unlock while any due card exists, never moves a reviewed card or another level, and persists the new due times across restart.
 - `app/services/learning_service.py` derives dashboard metrics from ReviewLog rather than trusting only aggregate LearningState values.
 - Dashboard statistics ignore future-dated ReviewLog rows so clock/import anomalies cannot inflate completed counts, accuracy, streaks, or wrong-word rankings.
-- `app/ui/review_page.py` presents active recall and four-choice recognition in one workflow. Before feedback, 1/2/3/4 selects a meaning; afterward the same keys map to Again/Hard/Good/Easy. The completion state exposes the voluntary five-word continuation action. Due-queue reads, unlocks, submissions, and post-batch reloads run through one page-owned `AsyncWorker`.
+- `app/ui/review_page.py` presents active recall and four-choice recognition in one workflow. It explicitly labels the recognition and difficulty-rating phases, shows cumulative in-session position plus the current batch remainder, and keeps progress across automatic 30-card reloads. Before feedback, 1/2/3/4 selects a meaning; afterward the same keys map to Again/Hard/Good/Easy, with a 450 ms keyboard-only transition guard so a rapid second press cannot accidentally rate the card. The latest successful rating can be reversed with the visible undo action or Ctrl+Z; the restored card reopens before the displaced next card. The completion state exposes the voluntary five-word continuation action. Due-queue reads, unlocks, submissions, undo, and post-batch reloads run through one page-owned `AsyncWorker`.
 - Starting a review session from sidebar navigation dismisses any visible reminder banner, preventing stale counts from remaining above an active review.
 - `app/ui/dashboard_page.py` shows due count, completed today, seven-day accuracy, streak, and frequent wrong words. Statistics load off the GUI thread; refresh requests arriving during a load are coalesced into one follow-up refresh.
 
@@ -185,12 +186,13 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 196 passed in 8.80s | 2026-08-22 |
+| Full pytest suite | 203 passed in 9.44s | 2026-08-22 |
 | Python dependency integrity | `pip check` reported no broken requirements | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
 | Ruff format gate | 95 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 61 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
+| Review UX phase/guard/undo | 34 focused service/UI/migration tests passed: exact FSRS/counter restoration for correct and Again reviews, deletion of the reverted log, later-review rejection, schema-v6 column upgrade, phase/progress rendering, 450 ms number-key guard, and restored-card reopening | 2026-08-22 |
 | Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
 | Exact reminder wake-up | persisted Snooze and claimed-notification cooldowns expose one absolute 30-minute expiry; UI millisecond conversion is exact, non-negative, and Qt-bounded; restart evaluation reconstructs the same target; focused reminder/UI tests passed | 2026-08-22 |
 | Actionable Windows notifications | four focused tests passed: exact Start/Snooze action payloads, background-thread callback delivery on the Qt GUI thread, frozen install-marker/AUMID selection, native-send failure fallback, and per-process Toast cleanup. A live installed Toast was present under `CET.Agent.Desktop` with both exact action arguments; process close reduced that history from 1 to 0 | 2026-08-22 |
@@ -213,14 +215,14 @@ Update this section after every material change. Never report a feature as verif
 | 100-candidate graph performance | 100 errors per candidate and all 4,950 edges: 0.932s, 0.907s, 0.913s; median 0.913s; exact one-cluster invariant passed | 2026-08-22 |
 | Locked dependency install | clean Python 3.13 virtual environment installed `requirements-dev.lock`; `pip check` passed; Python 3.11/win_amd64 wheel-resolution dry run passed | 2026-08-22 |
 | GitHub Actions workflow | Windows Python 3.11/3.13 matrix defined with current official v7 checkout/setup actions; local-equivalent full gate passed; hosted run pending remote configuration | 2026-08-22 |
-| Schema migration matrix | 8 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS mapping, v2→v3 level activation, v3→v4 review leases, v4→v5 demo-state repair plus successful four-choice rating persistence, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
+| Schema migration matrix | 9 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS mapping, v2→v3 level activation, v3→v4 review leases, v4→v5 demo-state repair plus successful four-choice rating persistence, v5→v6 undo snapshots, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
 | Official FSRS-6 reference vectors | initial Again/Hard/Good/Easy plus five-review sequence passed against py-fsrs 6.3.2 | 2026-08-22 |
 | Deterministic randomized algorithm invariants | 6,000 checks passed | 2026-08-22 |
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup/shutdown smoke | latest schema-v5 run exited 0 through the real deferred-close path; prior 20-run lifecycle baseline, post-workspace repetitions, and subprocess regression also passed | 2026-08-22 |
-| SQLite integrity and foreign keys | schema v5; 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations, invalid reviewed-without-time FSRS rows, or stale review leases | 2026-08-22 |
+| Offscreen startup/shutdown smoke | latest schema-v6 run exited 0 through the real deferred-close path; prior 20-run lifecycle baseline, post-workspace repetitions, and subprocess regression also passed | 2026-08-22 |
+| SQLite integrity and foreign keys | current source database upgraded to schema v6 and `integrity_check=ok`; all four undo snapshot columns are present. The prior schema-v5 audit recorded 4,611 runtime words (3,329 CET4 + 1,282 CET6), no foreign-key violations, invalid reviewed-without-time FSRS rows, or stale review leases | 2026-08-22 |
 | Runtime demo-state repair | pre-v5 backup created under ignored `data/backups`; six impossible reviewed-without-time states became zero; `adapt` retained exactly its one real correct review; 28 demo ReviewLogs remained; repaired `adept` and preserved `adapt` both produced valid FSRS schedules | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
@@ -260,7 +262,7 @@ python main.py
 
 ### Current defect status
 
-- No reproducible functional defect is open at the current `main` head. Automated/static/local-AI/source/frozen/installer checks are green, the post-v5 runtime log contains a successful real four-choice rating and no later errors, and the user completed visible acceptance of the currently implemented functions in the current pass without reporting a problem.
+- No reproducible functional defect is open in the current source tree. The new phase/progress, keyboard guard, and one-step undo behavior has automated and offscreen coverage; visible Windows acceptance of this specific UX pass has not yet been recorded. Earlier source/local-AI/frozen/installer checks and the user's prior visible acceptance remain valid evidence for the behavior they covered, but do not substitute for testing the new controls.
 
 ### Content and model limitations
 
@@ -271,6 +273,7 @@ python main.py
 
 - Application icon, Windows executable version resources, digital/code signing and its pipeline, and Git remote/hosted CI execution are explicitly deferred by current user direction. The current installer is therefore intentionally unsigned and uses default generated executable/installer resources.
 - The locally installed Inno Setup 6.7.3 compiler identifies itself as “Non-commercial use only”. This is sufficient for the present local/non-commercial validation; any commercial distribution must use an appropriately licensed Inno Setup compiler or replace the installer toolchain.
+- The last onedir package and installer were built from schema-v5 code before this review-UX pass. Source mode is current and verified at schema v6; rebuild and re-run isolated installed smoke before treating a distributable artifact as current.
 
 ## 7. Key design decisions
 
@@ -326,6 +329,7 @@ python main.py
 50. Snapshot contextual assistance: the embedded assistant captures only the current ReviewItem when Send is pressed, labels that word in the transcript, bounds context in the Prompt layer, and shares the existing Provider/routing rules without sharing a worker or history with the full assistant page.
 51. Synthetic evidence isolation: `demo_confusion` ReviewLogs may drive the repeatable analysis demo, but they are not user reviews and must never alter LearningState aggregates or FSRS card state. Schema v5 repairs already polluted databases without deleting graph evidence.
 52. Grounded small-model memory help: the local model may visualize only a scene from the supplied example or meaning. The application deterministically owns the displayed example/meaning hook and recall item, including a meaning-to-English fallback for cards without examples, so a 3B model cannot present invented etymology, roots, homophones, or empty repetition advice as learning facts.
+53. Exact latest-review undo: undo is a compensating database transaction, not a UI-only queue edit. Each new review persists the missing pre-review schedule snapshot; only a card whose current `last_review_at` still matches that log may be restored, counters and FSRS fields move together, and legacy logs remain intentionally non-undoable.
 
 ## 8. Development constraints
 

@@ -81,6 +81,83 @@ def test_review_page_completes_one_review(database, word_id) -> None:
     page.deleteLater()
 
 
+def test_review_page_shows_phase_and_session_progress(database, word_id) -> None:
+    app = QApplication.instance() or QApplication([])
+    page = ReviewPage(ReviewService(database))
+
+    page.load_queue()
+    _wait_until_idle(page, app)
+
+    assert "阶段 1/2" in page.phase_label.text()
+    assert "1/1" in page.progress.text()
+    page.reveal_answer()
+    assert "阶段 2/2" in page.phase_label.text()
+    page.deleteLater()
+
+
+def test_number_shortcut_requires_a_pause_between_choice_and_rating(
+    database,
+    word_id,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    _add_choice_words(database)
+    page = ReviewPage(ReviewService(database))
+    page.load_queue()
+    _wait_until_idle(page, app)
+    assert page.current is not None
+    correct_index = next(
+        index
+        for index, option in enumerate(page.current.meaning_options)
+        if option.word_id == word_id
+    )
+
+    page._handle_number_key(correct_index)
+    page._handle_number_key(2)
+    app.processEvents()
+
+    assert page.worker is None
+    with database.session() as session:
+        assert session.scalar(select(func.count(ReviewLog.id))) == 0
+
+    page._rating_shortcuts_ready_at = 0.0
+    page._handle_number_key(2)
+    _wait_until_idle(page, app)
+    with database.session() as session:
+        assert session.scalar(select(func.count(ReviewLog.id))) == 1
+    page.deleteLater()
+
+
+def test_review_page_can_undo_last_rating_and_reopen_the_card(
+    database,
+    word_id,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    page = ReviewPage(ReviewService(database))
+    page.load_queue()
+    _wait_until_idle(page, app)
+    page.reveal_answer()
+    page.submit(Rating.GOOD)
+    _wait_until_idle(page, app)
+
+    assert page.current is None
+    assert page.undo_button.isVisibleTo(page) is True
+    page.undo_last_review()
+    _wait_until_idle(page, app)
+
+    assert page.current is not None
+    assert page.current.word_id == word_id
+    assert page.choice_correct is None
+    assert "阶段 1/2" in page.phase_label.text()
+    with database.session() as session:
+        state = session.scalar(
+            select(LearningState).where(LearningState.word_id == word_id)
+        )
+        assert state is not None
+        assert state.review_count == 0
+        assert session.scalar(select(func.count(ReviewLog.id))) == 0
+    page.deleteLater()
+
+
 def test_review_page_records_objective_meaning_choice(database, word_id) -> None:
     app = QApplication.instance() or QApplication([])
     _add_choice_words(database)
