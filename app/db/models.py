@@ -156,6 +156,19 @@ class ReviewLog(Base):
     word: Mapped[Word] = relationship(back_populates="review_logs")
 
 
+class FavoriteWord(Base):
+    """A single-user personal wordbook entry."""
+
+    __tablename__ = "favorite_words"
+
+    word_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+    word: Mapped[Word] = relationship()
+
+
 class ConfusionEdge(Base):
     __tablename__ = "confusion_edges"
     __table_args__ = (

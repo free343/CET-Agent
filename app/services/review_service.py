@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.database import Database
-from app.db.models import LearningState, ReviewLog, Word, WordLevel
+from app.db.models import FavoriteWord, LearningState, ReviewLog, Word, WordLevel
 from app.db.repositories import LearningStateRepository, ReviewLogRepository
 from app.domain.fsrs_scheduler import Rating, ReviewScheduleResult, schedule_review
 from app.domain.meaning_quiz import (
@@ -35,6 +35,9 @@ class ReviewItem:
     error_count: int
     next_review_at: datetime
     meaning_options: tuple[MeaningOption, ...] = ()
+    is_favorite: bool = False
+    collocations: tuple[str, ...] = ()
+    word_family: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +80,13 @@ class ReviewService:
                 .due_query(checked_at, self.study_level)
                 .limit(safe_limit)
             ).all()
+            favorite_ids = set(
+                session.scalars(
+                    select(FavoriteWord.word_id).where(
+                        FavoriteWord.word_id.in_(state.word_id for state in states)
+                    )
+                )
+            )
             candidates_by_level = self._meaning_candidates_by_level(session, states)
             return [
                 ReviewItem(
@@ -98,6 +108,7 @@ class ReviewService:
                         ),
                         candidates_by_level.get(state.word.level, []),
                     ),
+                    is_favorite=state.word.id in favorite_ids,
                 )
                 for state in states
             ]

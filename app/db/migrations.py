@@ -6,7 +6,12 @@ from collections.abc import Callable, Mapping
 
 from sqlalchemy import Connection, Engine, inspect, text
 
-from app.db.models import Base, ReminderReviewLease, StudyLevelActivation
+from app.db.models import (
+    Base,
+    FavoriteWord,
+    ReminderReviewLease,
+    StudyLevelActivation,
+)
 
 Migration = Callable[[Connection], None]
 
@@ -161,6 +166,10 @@ def _add_review_undo_snapshots(connection: Connection) -> None:
             )
 
 
+def _add_favorite_wordbook(connection: Connection) -> None:
+    FavoriteWord.__table__.create(bind=connection, checkfirst=True)
+
+
 MIGRATIONS: dict[int, Migration] = {
     1: _create_initial_schema,
     2: _add_fsrs_card_state,
@@ -168,6 +177,7 @@ MIGRATIONS: dict[int, Migration] = {
     4: _add_reminder_review_leases,
     5: _repair_demo_learning_states,
     6: _add_review_undo_snapshots,
+    7: _add_favorite_wordbook,
 }
 CURRENT_SCHEMA_VERSION = max(MIGRATIONS)
 

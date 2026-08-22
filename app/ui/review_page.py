@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from functools import partial
 
 from PySide6.QtCore import Qt
@@ -28,6 +29,7 @@ from app.services.review_service import (
     ReviewSubmission,
     ReviewUndoResult,
 )
+from app.services.wordbook_service import FavoriteUpdate, WordbookService
 from app.ui.chat_page import ChatContext, ChatPanel, ChatService
 from app.ui.widgets.async_worker import AsyncWorker
 from app.ui.widgets.review_card import ReviewCardWidget
@@ -44,11 +46,13 @@ class ReviewPage(QWidget):
         on_reviewed: Callable[[], object] | None = None,
         on_session_state_changed: Callable[[bool], None] | None = None,
         assistant_service: ChatService | None = None,
+        wordbook_service: WordbookService | None = None,
     ) -> None:
         super().__init__()
         self.service = service
         self.on_reviewed = on_reviewed
         self.on_session_state_changed = on_session_state_changed
+        self.wordbook_service = wordbook_service
         self.queue: list[ReviewItem] = []
         self.current: ReviewItem | None = None
         self.worker: AsyncWorker | None = None
@@ -91,22 +95,31 @@ class ReviewPage(QWidget):
             on_reveal=self.reveal_answer,
             on_unlock=self.unlock_extra_study,
             on_undo=self.undo_last_review,
+            on_favorite=self.toggle_favorite,
             on_choice=self.select_meaning,
             on_rating=self.submit,
         )
         self.word_label = card.word_label
         self.phase_label = card.phase_label
         self.phonetic_label = card.phonetic_label
+        self.favorite_button = card.favorite_button
         self.answer_label = card.answer_label
         self.example_label = card.example_label
         self.choice_widget = card.choice_widget
         self.choice_frame = self.choice_widget
         self.choice_help = self.choice_widget.help_label
         self.choice_buttons = self.choice_widget.buttons
+        self.learning_aids_frame = card.learning_aids_frame
+        self.collocations_label = card.collocations_label
+        self.word_family_label = card.word_family_label
+        self._show_learning_aids = card.show_learning_aids
+        self._hide_learning_aids = card.hide_learning_aids
         self.reveal_button = card.reveal_button
         self.continue_button = card.continue_button
         self.undo_button = card.undo_button
         self.rating_buttons = card.rating_buttons
+        if self.wordbook_service is None:
+            self.favorite_button.hide()
         outer.addWidget(card)
         outer.addStretch()
 
@@ -166,6 +179,8 @@ class ReviewPage(QWidget):
         self.phonetic_label.clear()
         self.answer_label.clear()
         self.example_label.clear()
+        self.favorite_button.setEnabled(False)
+        self._hide_learning_aids()
         self._reset_choice_state()
         self.continue_button.hide()
         self.reveal_button.setEnabled(False)
@@ -195,6 +210,8 @@ class ReviewPage(QWidget):
             self.phonetic_label.setText("做得很好，稍后再回来看看吧。")
             self.answer_label.clear()
             self.example_label.clear()
+            self.favorite_button.hide()
+            self._hide_learning_aids()
             self.choice_frame.hide()
             self.reveal_button.setEnabled(False)
             self.continue_button.setText("继续学习 5 个新词")
@@ -212,6 +229,7 @@ class ReviewPage(QWidget):
         self.phase_label.setText("阶段 1/2 · 选择释义")
         self.word_label.setText(self.current.word)
         self.phonetic_label.setText(self.current.phonetic)
+        self._refresh_favorite_button()
         self.answer_label.clear()
         self.example_label.clear()
         self._reset_choice_state()
@@ -242,7 +260,12 @@ class ReviewPage(QWidget):
         self.choice_correct = None
         self.answer_label.setText(self.current.meaning)
         self.example_label.setText(self.current.example)
+        self._show_learning_aids(
+            self.current.collocations,
+            self.current.word_family,
+        )
         self.choice_widget.disable_and_highlight()
+        self.choice_widget.hide()
         self.reveal_button.hide()
         self._set_ratings_enabled(True)
         self._rating_shortcuts_ready_at = (
@@ -259,6 +282,7 @@ class ReviewPage(QWidget):
         self.selected_answer = option.meaning
         self.choice_correct = option.is_correct
         self.choice_widget.disable_and_highlight(selected_index=index)
+        self.choice_widget.hide()
         if self.choice_correct:
             self.choice_help.setText("回答正确，请按真实回忆难度评分。")
             self.answer_label.setText(f"回答正确\n{self.current.meaning}")
@@ -266,6 +290,10 @@ class ReviewPage(QWidget):
             self.choice_help.setText("回答错误，本题将按 Again 记录。")
             self.answer_label.setText(f"回答错误\n正确释义：{self.current.meaning}")
         self.example_label.setText(self.current.example)
+        self._show_learning_aids(
+            self.current.collocations,
+            self.current.word_family,
+        )
         self.reveal_button.hide()
         self._set_ratings_enabled(True)
         self._rating_shortcuts_ready_at = (
@@ -301,6 +329,33 @@ class ReviewPage(QWidget):
         self.worker.failed.connect(self._task_failed)
         self.worker.finished.connect(self._worker_finished)
         self.worker.start()
+
+    def toggle_favorite(self) -> None:
+        if (
+            self.worker is not None
+            or self.current is None
+            or self.wordbook_service is None
+        ):
+            return
+        self.favorite_button.setEnabled(False)
+        self.worker_action = "favorite"
+        self.worker = AsyncWorker(
+            self.wordbook_service.set_favorite,
+            self.current.word_id,
+            not self.current.is_favorite,
+            parent=self,
+        )
+        self.worker.result_ready.connect(self._favorite_updated)
+        self.worker.failed.connect(self._task_failed)
+        self.worker.finished.connect(self._worker_finished)
+        self.worker.start()
+
+    def _favorite_updated(self, result: FavoriteUpdate) -> None:
+        if self.current is None or self.current.word_id != result.word_id:
+            logger.error("Favorite result does not match the current review card")
+            return
+        self.current = replace(self.current, is_favorite=result.is_favorite)
+        self._refresh_favorite_button()
 
     def unlock_extra_study(self) -> None:
         if self.worker is not None or self.current is not None:
@@ -355,6 +410,8 @@ class ReviewPage(QWidget):
             self.phonetic_label.clear()
             self.answer_label.clear()
             self.example_label.clear()
+            self.favorite_button.hide()
+            self._hide_learning_aids()
             self.choice_frame.hide()
             self.reveal_button.setEnabled(False)
             self.progress.clear()
@@ -404,6 +461,11 @@ class ReviewPage(QWidget):
         self._show_next()
 
     def _task_failed(self, message: str) -> None:
+        if self.worker_action == "favorite":
+            logger.error("Could not update favorite: %s", message)
+            self._refresh_favorite_button()
+            self._show_error("暂时无法更新收藏，请稍后重试。")
+            return
         if self.worker_action == "submit":
             logger.error("Review submission failed: %s", message)
             self._pending_review_item = None
@@ -448,6 +510,8 @@ class ReviewPage(QWidget):
         self.phonetic_label.clear()
         self.answer_label.clear()
         self.example_label.clear()
+        self.favorite_button.hide()
+        self._hide_learning_aids()
         self.reveal_button.setEnabled(False)
         self.continue_button.hide()
         self._set_ratings_enabled(False)
@@ -465,6 +529,7 @@ class ReviewPage(QWidget):
             self._load_after_worker = False
             self._start_queue_load(reset_progress=False)
             return
+        self._refresh_favorite_button()
         self._refresh_undo_button()
 
     def _set_ratings_enabled(self, enabled: bool) -> None:
@@ -487,7 +552,18 @@ class ReviewPage(QWidget):
         self.choice_correct = None
         self.used_hint = False
         self._rating_shortcuts_ready_at = float("inf")
+        self._hide_learning_aids()
         self.choice_widget.reset()
+
+    def _refresh_favorite_button(self) -> None:
+        if self.wordbook_service is None or self.current is None:
+            self.favorite_button.hide()
+            return
+        self.favorite_button.setText(
+            "★ 已收藏" if self.current.is_favorite else "☆ 收藏"
+        )
+        self.favorite_button.setEnabled(self.worker is None)
+        self.favorite_button.show()
 
     def _clear_undo(self) -> None:
         self._last_reviewed_item = None

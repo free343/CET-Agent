@@ -15,6 +15,7 @@ from app.db.models import LearningState, ReviewLog, Word, WordLevel
 from app.domain.fsrs_scheduler import Rating
 from app.domain.query_routing import QueryAssessment, QueryRoute
 from app.services.review_service import ReviewService
+from app.services.wordbook_service import WordbookService
 from app.ui.review_page import ReviewPage
 from app.utils.datetime_utils import UTC
 
@@ -92,6 +93,50 @@ def test_review_page_shows_phase_and_session_progress(database, word_id) -> None
     assert "1/1" in page.progress.text()
     page.reveal_answer()
     assert "阶段 2/2" in page.phase_label.text()
+    page.deleteLater()
+
+
+def test_review_page_toggles_current_word_favorite(database, word_id) -> None:
+    app = QApplication.instance() or QApplication([])
+    wordbook = WordbookService(database)
+    page = ReviewPage(ReviewService(database), wordbook_service=wordbook)
+
+    page.load_queue()
+    _wait_until_idle(page, app)
+    assert page.favorite_button.text() == "☆ 收藏"
+
+    page.favorite_button.click()
+    _wait_until_idle(page, app)
+    assert page.current is not None
+    assert page.current.is_favorite is True
+    assert page.favorite_button.text() == "★ 已收藏"
+    assert [item.word_id for item in wordbook.list_favorites()] == [word_id]
+
+    page.favorite_button.click()
+    _wait_until_idle(page, app)
+    assert page.current is not None
+    assert page.current.is_favorite is False
+    assert wordbook.list_favorites() == []
+    page.deleteLater()
+
+
+def test_learning_aids_appear_only_after_answer_without_invented_content(
+    database,
+    word_id,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    page = ReviewPage(ReviewService(database))
+
+    page.load_queue()
+    _wait_until_idle(page, app)
+    assert page.learning_aids_frame.isHidden() is True
+
+    page.reveal_answer()
+
+    assert page.learning_aids_frame.isHidden() is False
+    assert page.choice_widget.isHidden() is True
+    assert "待 AI 逐词生成并校验" in page.collocations_label.text()
+    assert "待 AI 逐词生成并校验" in page.word_family_label.text()
     page.deleteLater()
 
 

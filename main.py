@@ -20,6 +20,7 @@ from app.services.analysis_service import AnalysisService
 from app.services.learning_service import LearningService
 from app.services.reminder_service import ReminderService
 from app.services.review_service import ReviewService
+from app.services.wordbook_service import WordbookService
 from app.ui.main_window import MainWindow
 
 logger = logging.getLogger(__name__)
@@ -36,12 +37,14 @@ def run(*, smoke_test: bool = False) -> int:
         ai_service = AIService(database, llm_provider, advanced_provider)
         embedding_provider = create_embedding_provider(settings, database)
         review_service = ReviewService(database, settings.study_level)
+        wordbook_service = WordbookService(database)
         window = MainWindow(
             LearningService(database, settings.study_level),
             review_service,
             AnalysisService(database, embedding_provider),
             ai_service,
             ReminderService(review_service, settings),
+            wordbook_service,
             settings,
         )
         window.show()

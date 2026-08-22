@@ -333,6 +333,42 @@ def test_version_five_adds_review_undo_snapshot_columns(tmp_path) -> None:
         database.dispose()
 
 
+def test_version_six_adds_favorite_wordbook_table(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 6)"
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE words (
+                    id INTEGER PRIMARY KEY
+                )
+                """
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+
+        assert "favorite_words" in inspect(database.engine).get_table_names()
+        columns = {
+            column["name"]
+            for column in inspect(database.engine).get_columns("favorite_words")
+        }
+        assert columns == {"word_id", "created_at"}
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
 def test_newer_database_version_is_rejected(tmp_path) -> None:
     database = make_database(tmp_path)
     try:

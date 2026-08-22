@@ -18,6 +18,7 @@ class ReviewCardWidget(QFrame):
         on_reveal: Callable[[], None],
         on_unlock: Callable[[], None],
         on_undo: Callable[[], None],
+        on_favorite: Callable[[], None],
         on_choice: Callable[[int], None],
         on_rating: Callable[[Rating], None],
     ) -> None:
@@ -31,6 +32,9 @@ class ReviewCardWidget(QFrame):
         self.phase_label.setStyleSheet("color: #64748b; font-weight: 600;")
         self.word_label = self._centered_label("准备开始", "Word")
         self.phonetic_label = self._centered_label("", "Phonetic")
+        self.favorite_button = QPushButton("☆ 收藏")
+        self.favorite_button.setObjectName("FavoriteButton")
+        self.favorite_button.clicked.connect(on_favorite)
         self.answer_label = self._centered_label("")
         self.answer_label.setWordWrap(True)
         self.answer_label.setStyleSheet("font-size: 18px; color: #334155;")
@@ -39,6 +43,28 @@ class ReviewCardWidget(QFrame):
         self.example_label.setStyleSheet("color: #64748b; font-style: italic;")
         self.choice_widget = MeaningQuizWidget()
         self.choice_widget.option_selected.connect(on_choice)
+        self.learning_aids_frame = QFrame()
+        self.learning_aids_frame.setObjectName("LearningAids")
+        aids_layout = QHBoxLayout(self.learning_aids_frame)
+        aids_layout.setContentsMargins(18, 12, 18, 12)
+        aids_layout.setSpacing(24)
+        collocations_group = QVBoxLayout()
+        collocations_title = QLabel("固定搭配")
+        collocations_title.setObjectName("LearningAidTitle")
+        self.collocations_label = QLabel("")
+        self.collocations_label.setWordWrap(True)
+        collocations_group.addWidget(collocations_title)
+        collocations_group.addWidget(self.collocations_label)
+        family_group = QVBoxLayout()
+        family_title = QLabel("同族 / 派生词")
+        family_title.setObjectName("LearningAidTitle")
+        self.word_family_label = QLabel("")
+        self.word_family_label.setWordWrap(True)
+        family_group.addWidget(family_title)
+        family_group.addWidget(self.word_family_label)
+        aids_layout.addLayout(collocations_group, 1)
+        aids_layout.addLayout(family_group, 1)
+        self.learning_aids_frame.hide()
         self.reveal_button = QPushButton("显示释义  Space")
         self.reveal_button.setObjectName("PrimaryButton")
         self.reveal_button.clicked.connect(on_reveal)
@@ -70,16 +96,40 @@ class ReviewCardWidget(QFrame):
         layout.addWidget(self.phase_label)
         layout.addWidget(self.word_label)
         layout.addWidget(self.phonetic_label)
+        layout.addWidget(
+            self.favorite_button,
+            alignment=Qt.AlignmentFlag.AlignCenter,
+        )
         layout.addSpacing(16)
         layout.addWidget(self.answer_label)
         layout.addWidget(self.example_label)
         layout.addWidget(self.choice_widget)
+        layout.addWidget(self.learning_aids_frame)
         layout.addSpacing(12)
         layout.addWidget(self.reveal_button, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.continue_button, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addLayout(rating_row)
         layout.addWidget(self.undo_button, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addStretch()
+
+    def show_learning_aids(
+        self,
+        collocations: tuple[str, ...],
+        word_family: tuple[str, ...],
+    ) -> None:
+        self.collocations_label.setText(self._format_learning_aids(collocations))
+        self.word_family_label.setText(self._format_learning_aids(word_family))
+        self.learning_aids_frame.show()
+
+    def hide_learning_aids(self) -> None:
+        self.learning_aids_frame.hide()
+
+    @staticmethod
+    def _format_learning_aids(items: tuple[str, ...]) -> str:
+        cleaned = [item.strip()[:120] for item in items[:6] if item.strip()]
+        if not cleaned:
+            return "待 AI 逐词生成并校验"
+        return "  ·  ".join(cleaned)
 
     @staticmethod
     def _centered_label(text: str, object_name: str = "") -> QLabel:

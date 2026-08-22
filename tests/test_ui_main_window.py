@@ -123,6 +123,7 @@ def test_active_workers_include_dashboard_and_review_tasks() -> None:
     dashboard_worker = FakeWorker()
     review_worker = FakeWorker()
     assistant_worker = FakeWorker()
+    wordbook_worker = FakeWorker()
     window_like = SimpleNamespace(
         dashboard_page=SimpleNamespace(worker=dashboard_worker),
         review_page=SimpleNamespace(
@@ -130,6 +131,7 @@ def test_active_workers_include_dashboard_and_review_tasks() -> None:
             assistant_panel=SimpleNamespace(worker=assistant_worker),
         ),
         analysis_page=SimpleNamespace(worker=None),
+        wordbook_page=SimpleNamespace(worker=wordbook_worker),
         chat_page=SimpleNamespace(worker=None),
         reminder_worker=None,
     )
@@ -138,6 +140,7 @@ def test_active_workers_include_dashboard_and_review_tasks() -> None:
         dashboard_worker,
         review_worker,
         assistant_worker,
+        wordbook_worker,
     ]
 
 

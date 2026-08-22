@@ -30,6 +30,7 @@ from app.services.analysis_service import AnalysisService
 from app.services.learning_service import LearningService
 from app.services.reminder_service import ReminderService, ReminderStatus
 from app.services.review_service import ReviewService
+from app.services.wordbook_service import WordbookService
 from app.ui.analysis_page import AnalysisPage
 from app.ui.chat_page import ChatPage
 from app.ui.dashboard_page import DashboardPage
@@ -38,6 +39,7 @@ from app.ui.settings_page import SettingsPage
 from app.ui.theme import APP_STYLESHEET
 from app.ui.widgets.async_worker import AsyncWorker
 from app.ui.widgets.reminder_banner import ReminderBanner
+from app.ui.wordbook_page import WordbookPage
 from app.utils.datetime_utils import ensure_utc, utc_now
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,7 @@ class MainWindow(QMainWindow):
         analysis_service: AnalysisService,
         ai_service: AIService,
         reminder_service: ReminderService,
+        wordbook_service: WordbookService,
         settings: Settings,
     ) -> None:
         super().__init__()
@@ -97,11 +100,13 @@ class MainWindow(QMainWindow):
 
         self.pages = QStackedWidget()
         self.dashboard_page = DashboardPage(learning_service)
+        self.wordbook_page = WordbookPage(wordbook_service)
         self.review_page = ReviewPage(
             review_service,
             self._review_completed,
             self._review_session_changed,
             ai_service,
+            wordbook_service,
         )
         self.analysis_page = AnalysisPage(analysis_service, ai_service)
         self.chat_page = ChatPage(ai_service)
@@ -109,6 +114,7 @@ class MainWindow(QMainWindow):
         pages = (
             ("学习概览", self.dashboard_page),
             ("单词复习", self.review_page),
+            ("收藏单词", self.wordbook_page),
             ("易混词分析", self.analysis_page),
             ("AI 助手", self.chat_page),
             ("设置", self.settings_page),
@@ -129,7 +135,7 @@ class MainWindow(QMainWindow):
                 button.setChecked(True)
         sidebar_layout.addStretch()
         version = QLabel("Local-first · v0.1")
-        version.setStyleSheet("color: #718096; padding: 8px 12px;")
+        version.setObjectName("SidebarFooter")
         sidebar_layout.addWidget(version)
 
         content = QWidget()
@@ -160,15 +166,23 @@ class MainWindow(QMainWindow):
         self.dashboard_page.refresh()
 
     def show_page(self, index: int) -> None:
-        if self.pages.currentIndex() == 1 and index != 1:
+        target = self.pages.widget(index)
+        if target is None:
+            return
+        if (
+            self.pages.currentWidget() is self.review_page
+            and target is not self.review_page
+        ):
             self._review_session_changed(False)
         self.pages.setCurrentIndex(index)
-        if index == 0:
+        if target is self.dashboard_page:
             self.dashboard_page.refresh()
-        elif index == 1:
+        elif target is self.review_page:
             self._review_session_changed(True)
             self.review_page.load_queue()
-        elif index == 2:
+        elif target is self.wordbook_page:
+            self.wordbook_page.refresh()
+        elif target is self.analysis_page:
             self.analysis_page.refresh()
 
     def _check_reminder(self) -> None:
@@ -182,7 +196,7 @@ class MainWindow(QMainWindow):
 
     def _start_review_from_reminder(self) -> None:
         self.reminder_banner.hide()
-        self.show_page(1)
+        self.show_page(self.pages.indexOf(self.review_page))
         self.raise_()
         self.activateWindow()
 
@@ -334,6 +348,7 @@ class MainWindow(QMainWindow):
             self.dashboard_page.worker,
             self.review_page.worker,
             getattr(review_assistant, "worker", None),
+            self.wordbook_page.worker,
             self.analysis_page.worker,
             self.chat_page.worker,
             self.reminder_worker,
