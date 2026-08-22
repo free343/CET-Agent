@@ -121,7 +121,8 @@ Local Ollama:
 - Structured cluster output must explain every algorithm-selected input word exactly once; schema-valid output containing missing, duplicate, or unrelated words is rejected and retried.
 - AI cache identity includes prompt version, provider type, model, base URL, cluster words, relation type, and major statistics.
 - If another window stores the same AI analysis after the initial cache read, the losing writer reloads the winning validated row and returns it as a cache hit.
-- The local assistant rejects obvious out-of-scope requests without calling a model.
+- `app/domain/query_routing.py` owns an injectable deterministic policy that normalizes input and returns an explainable `LOCAL`, `CONFIRM_ADVANCED`, or `REFUSE` decision with bounded confidence. It distinguishes language questions about an otherwise off-topic noun from actual real-time/professional requests, routes long or complex language tasks through explicit user choice, and never asks an LLM to select a model.
+- The local assistant rejects empty, general-chat, real-time, and professional out-of-scope requests without calling a model. The Chat UI consumes the structured route instead of comparing a magic confidence threshold.
 
 ### Reminder and desktop lifecycle
 
@@ -157,10 +158,11 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 83 passed in 1.91s from a clean lock-installed virtual environment | 2026-08-22 |
+| Full pytest suite | 98 passed in 1.84s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 72 files already formatted | 2026-08-22 |
-| Mypy application/scripts check | exit code 0; 51 source files | 2026-08-22 |
+| Ruff format gate | 74 files already formatted | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 52 source files | 2026-08-22 |
+| Deterministic chat routing | 15 new/updated routing and integration cases cover local vocabulary/grammar, Unicode normalization, advanced confirmation, empty/general/off-topic refusal, scope override, and zero-call refusal | 2026-08-22 |
 | Locked dependency install | clean Python 3.13 virtual environment installed `requirements-dev.lock`; `pip check` passed; Python 3.11/win_amd64 wheel-resolution dry run passed | 2026-08-22 |
 | GitHub Actions workflow | Windows Python 3.11/3.13 matrix defined with current official v7 checkout/setup actions; local-equivalent full gate passed; hosted run pending remote configuration | 2026-08-22 |
 | Schema migration matrix | 5 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS state mapping, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
@@ -203,7 +205,6 @@ python main.py
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
 - The advanced-model Provider is an interface/UI placeholder and has no configured application bootstrap path.
-- Confidence routing is a hard-coded keyword/length heuristic.
 - Chat is intentionally single-turn and has no bounded conversation persistence.
 - Complete the remaining native Windows validation for tray/toast behavior, real 30-minute snooze timing, and closing during an uncached active AI request.
 
@@ -234,6 +235,7 @@ python main.py
 16. Dual-source vocabulary gate: ECDICT supplies display fields and CET metadata, while FreeDict independently confirms an open bilingual entry and pronunciation. A source mismatch removes the row instead of guessing.
 17. Bounded initial workload: new open-data words are frequency-sorted and released independently per selected CET level at 20 per day. Level selection is a deterministic query filter, not an LLM decision.
 18. Reproducible quality gate: direct dependency ranges remain human-maintainable while pip-tools lock files pin actual installs. Windows Python 3.11 and 3.13 are the CI compatibility bounds; lint, formatting, type checks, tests, dependency integrity, and an offscreen startup must all pass.
+19. Explainable model routing: a pure domain policy combines normalized learning-intent, precise out-of-scope phrases, text size, and task complexity into a structured route. Scope refusal runs before complexity escalation, explicit language-learning context can override an ambiguous noun, and the UI never infers a route from a magic numeric threshold.
 15. Fail-fast configuration: graph and reminder settings are validated before use; invalid bounds, non-finite weights, unsafe candidate limits, and invalid reminder windows are not silently accepted.
 16. Monotonic review history: a review cannot be committed at or before that word's previous review timestamp.
 17. Cache self-repair: malformed Embedding cache rows are discarded and regenerated, and network/model waits never occur inside an open cache transaction.

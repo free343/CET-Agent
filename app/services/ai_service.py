@@ -21,6 +21,11 @@ from app.ai.schemas import (
 from app.db.database import Database
 from app.db.models import AIAnalysis
 from app.db.repositories import AIAnalysisRepository
+from app.domain.query_routing import (
+    QueryAssessment,
+    QueryRoute,
+    QueryRoutingPolicy,
+)
 from app.services.analysis_service import ConfusionCluster
 from app.utils.text_utils import stable_json_hash
 
@@ -33,57 +38,48 @@ class AIService:
         database: Database,
         local_provider: LLMProvider,
         advanced_provider: LLMProvider | None = None,
+        routing_policy: QueryRoutingPolicy | None = None,
     ) -> None:
         self.database = database
         self.local_provider = local_provider
         self.advanced_provider = advanced_provider
+        self.routing_policy = routing_policy or QueryRoutingPolicy()
 
     @property
     def advanced_available(self) -> bool:
         return self.advanced_provider is not None
 
-    @staticmethod
-    def assess_question(question: str) -> float:
-        normalized = question.strip().lower()
-        if len(normalized) > 220:
-            return 0.42
-        complex_markers = ("学术论文", "法律", "医学", "编程", "实时新闻", "文学翻译")
-        if any(marker in normalized for marker in complex_markers):
-            return 0.35
-        return 0.86
-
-    @staticmethod
-    def _in_scope(question: str) -> bool:
-        normalized = question.strip().lower()
-        refusal_markers = ("天气", "股票", "写代码", "旅游攻略", "菜谱", "政治新闻")
-        return bool(normalized) and not any(
-            marker in normalized for marker in refusal_markers
-        )
+    def route_question(self, question: str) -> QueryAssessment:
+        return self.routing_policy.assess(question)
 
     def ask(self, question: str, *, use_advanced: bool = False) -> AIAnswer:
-        confidence = self.assess_question(question)
-        if not self._in_scope(question):
+        assessment = self.route_question(question)
+        if assessment.route is QueryRoute.REFUSE:
             return AIAnswer(
                 text="我只回答四六级词汇、基础英语语法、词义辨析和记忆技巧相关问题。",
-                confidence=1.0,
+                confidence=assessment.confidence,
                 model="scope-policy",
             )
         provider = self.advanced_provider if use_advanced else self.local_provider
         if provider is None:
             return AIAnswer(
                 text="高级模型尚未配置。请在 .env 中配置 Provider 后再试。",
-                confidence=confidence,
+                confidence=assessment.confidence,
                 model="unconfigured",
                 degraded=True,
             )
         try:
             text = provider.generate(chat_messages(question))
-            return AIAnswer(text=text, confidence=confidence, model=provider.model)
+            return AIAnswer(
+                text=text,
+                confidence=assessment.confidence,
+                model=provider.model,
+            )
         except LLMUnavailableError as exc:
             logger.warning("Vocabulary assistant unavailable: %s", exc)
             return AIAnswer(
                 text=str(exc),
-                confidence=confidence,
+                confidence=assessment.confidence,
                 model=provider.model,
                 degraded=True,
             )

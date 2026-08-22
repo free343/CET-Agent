@@ -6,6 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
+from app.domain.query_routing import QueryAssessment, QueryRoute
 from app.ui.chat_page import ChatPage
 
 
@@ -13,8 +14,12 @@ class LowConfidenceService:
     advanced_available = False
 
     @staticmethod
-    def assess_question(_question: str) -> float:
-        return 0.1
+    def route_question(_question: str) -> QueryAssessment:
+        return QueryAssessment(
+            QueryRoute.CONFIRM_ADVANCED,
+            0.4,
+            "问题较长。",
+        )
 
 
 def test_pending_routing_question_cannot_be_overwritten() -> None:
@@ -26,6 +31,7 @@ def test_pending_routing_question_cannot_be_overwritten() -> None:
     assert page.pending_question == "first complex question"
     assert page.input.isEnabled() is False
     assert page.send_button.isEnabled() is False
+    assert "问题较长" in page.routing_reason.text()
 
     page.input.setText("second complex question")
     page.send()

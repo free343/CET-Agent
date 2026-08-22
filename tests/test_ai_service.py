@@ -138,6 +138,15 @@ def test_out_of_scope_question_never_calls_model(database) -> None:
     assert "只回答" in answer.text
 
 
+def test_vocabulary_question_about_off_topic_noun_still_calls_model(database) -> None:
+    provider = FakeProvider(["stock 表示股票。"])
+
+    answer = AIService(database, provider).ask("股票行情这个短语是什么意思？")
+
+    assert provider.calls == 1
+    assert answer.model == "fake-3b"
+
+
 def test_unavailable_model_returns_safe_cluster_fallback(database) -> None:
     result = AIService(database, UnavailableProvider()).analyze_cluster(
         sample_cluster()

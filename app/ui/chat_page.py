@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol
+
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -14,12 +16,21 @@ from PySide6.QtWidgets import (
 )
 
 from app.ai.schemas import AIAnswer
-from app.services.ai_service import AIService
+from app.domain.query_routing import QueryAssessment, QueryRoute
 from app.ui.widgets.async_worker import AsyncWorker
 
 
+class ChatService(Protocol):
+    @property
+    def advanced_available(self) -> bool: ...
+
+    def route_question(self, question: str) -> QueryAssessment: ...
+
+    def ask(self, question: str, *, use_advanced: bool = False) -> AIAnswer: ...
+
+
 class ChatPage(QWidget):
-    def __init__(self, service: AIService) -> None:
+    def __init__(self, service: ChatService) -> None:
         super().__init__()
         self.service = service
         self.pending_question = ""
@@ -42,7 +53,8 @@ class ChatPage(QWidget):
         self.routing_frame = QFrame()
         self.routing_frame.setObjectName("Card")
         routing_layout = QHBoxLayout(self.routing_frame)
-        routing_layout.addWidget(QLabel("这个问题比较复杂，是否使用高级模型回答？"))
+        self.routing_reason = QLabel("这个问题比较复杂，是否使用高级模型回答？")
+        routing_layout.addWidget(self.routing_reason)
         routing_layout.addStretch()
         self.advanced_button = QPushButton("使用高级模型")
         self.advanced_button.setObjectName("PrimaryButton")
@@ -75,8 +87,9 @@ class ChatPage(QWidget):
         self.pending_question = question
         self.input.clear()
         self.transcript.append(f"你：{question}\n")
-        confidence = self.service.assess_question(question)
-        if confidence < 0.55:
+        assessment = self.service.route_question(question)
+        if assessment.route is QueryRoute.CONFIRM_ADVANCED:
+            self.routing_reason.setText(f"{assessment.reason} 是否使用高级模型回答？")
             self._set_input_enabled(False)
             self.routing_frame.show()
         else:

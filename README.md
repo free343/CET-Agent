@@ -20,6 +20,7 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 - Ollama 与 OpenAI-compatible LLM Provider 接口；
 - Pydantic 结构化输出、一次 JSON 重试、安全降级与 AI 结果缓存；
 - 独立 Embedding Provider 及 SQLite 缓存；
+- 可解释的确定性问题路由：本地回答、确认高级模型或直接拒绝越界请求；
 - demo 学习历史和 pytest 核心测试。
 
 ## Core Architecture
@@ -200,6 +201,7 @@ python -m piptools compile --resolver=backtracking --strip-extras --no-emit-inde
 - Temporal score 对每次错误寻找另一词最近错误并计算 `exp(-Δt/τ)`；
 - 超过 8 个词的 cluster 只把加权度最高的核心词提供给 LLM；
 - Prompt 只存在于 `app/ai/prompts.py`，输入仅含 Service 提取的必要结构化统计；
+- 聊天问题由 `app/domain/query_routing.py` 先做确定性范围和复杂度判断；路由会返回决策、置信度与原因，LLM 不参与选择自身或高级模型；
 - 提醒策略是纯函数；系统托盘消息与应用内“开始复习 / 30 分钟后提醒”操作分离。
 
 ## 项目结构
