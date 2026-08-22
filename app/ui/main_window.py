@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections import deque
+from collections.abc import Callable
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
@@ -22,7 +24,7 @@ from app.infrastructure.notification_adapter import QtNotificationAdapter
 from app.services.ai_service import AIService
 from app.services.analysis_service import AnalysisService
 from app.services.learning_service import LearningService
-from app.services.reminder_service import ReminderService
+from app.services.reminder_service import ReminderService, ReminderStatus
 from app.services.review_service import ReviewService
 from app.ui.analysis_page import AnalysisPage
 from app.ui.chat_page import ChatPage
@@ -30,6 +32,7 @@ from app.ui.dashboard_page import DashboardPage
 from app.ui.review_page import ReviewPage
 from app.ui.settings_page import SettingsPage
 from app.ui.theme import APP_STYLESHEET
+from app.ui.widgets.async_worker import AsyncWorker
 from app.ui.widgets.reminder_banner import ReminderBanner
 
 logger = logging.getLogger(__name__)
@@ -52,6 +55,9 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(APP_STYLESHEET)
         self.reminder_service = reminder_service
         self._closing_after_workers = False
+        self.reminder_worker: AsyncWorker | None = None
+        self.reminder_worker_action: str | None = None
+        self._reminder_tasks: deque[tuple[str, Callable[[], object]]] = deque()
 
         root = QWidget()
         root_layout = QHBoxLayout(root)
@@ -138,22 +144,13 @@ class MainWindow(QMainWindow):
             self.analysis_page.refresh()
 
     def _check_reminder(self) -> None:
-        try:
-            status = self.reminder_service.evaluate()
-            if not status.decision.should_notify:
-                return
-            self.notification_adapter.notify(
-                status.due_word_count,
-                status.estimated_minutes,
-            )
-            self.reminder_banner.show_reminder(
-                status.due_word_count,
-                status.estimated_minutes,
-            )
-            self.reminder_service.notification_sent()
-            logger.info("Review reminder triggered due_count=%s", status.due_word_count)
-        except Exception:
-            logger.exception("Reminder check failed")
+        if self._closing_after_workers:
+            return
+        self._enqueue_reminder_task(
+            "evaluate",
+            self.reminder_service.evaluate_and_claim,
+            coalesce=True,
+        )
 
     def _start_review_from_reminder(self) -> None:
         self.reminder_banner.hide()
@@ -162,9 +159,8 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def _snooze_reminder(self) -> None:
-        self.reminder_service.snooze()
         self.reminder_banner.hide()
-        logger.info("Review reminder snoozed")
+        self._enqueue_reminder_task("snooze", self.reminder_service.snooze)
 
     def _review_session_changed(self, active: bool) -> None:
         self.reminder_service.set_review_session_active(active)
@@ -173,13 +169,84 @@ class MainWindow(QMainWindow):
             # reminder just like the banner's own "start review" action.
             self.reminder_banner.hide()
         if not active:
-            try:
-                remaining_due = self.reminder_service.remaining_due_count()
-            except Exception:
-                logger.exception("Could not check remaining review count")
+            self._enqueue_reminder_task(
+                "complete_if_empty",
+                self._mark_review_complete_if_empty,
+                coalesce=True,
+            )
+
+    def _mark_review_complete_if_empty(self) -> int:
+        remaining_due = self.reminder_service.remaining_due_count()
+        if remaining_due == 0:
+            self.reminder_service.mark_today_completed()
+        return remaining_due
+
+    def _enqueue_reminder_task(
+        self,
+        action: str,
+        function: Callable[[], object],
+        *,
+        coalesce: bool = False,
+    ) -> bool:
+        if coalesce and (
+            self.reminder_worker_action == action
+            or any(
+                queued_action == action
+                for queued_action, _function in self._reminder_tasks
+            )
+        ):
+            return False
+        self._reminder_tasks.append((action, function))
+        self._start_next_reminder_task()
+        return True
+
+    def _start_next_reminder_task(self) -> None:
+        if self.reminder_worker is not None or not self._reminder_tasks:
+            return
+        action, function = self._reminder_tasks.popleft()
+        self.reminder_worker_action = action
+        self.reminder_worker = AsyncWorker(function, parent=self)
+        self.reminder_worker.result_ready.connect(self._reminder_task_succeeded)
+        self.reminder_worker.failed.connect(self._reminder_task_failed)
+        self.reminder_worker.finished.connect(self._reminder_worker_finished)
+        self.reminder_worker.start()
+
+    def _reminder_task_succeeded(self, result: object) -> None:
+        action = self.reminder_worker_action
+        if action == "evaluate":
+            if not isinstance(result, ReminderStatus):
+                logger.error("Reminder evaluation returned an invalid result")
                 return
-            if remaining_due == 0:
-                self.reminder_service.mark_today_completed()
+            if not result.decision.should_notify or self._closing_after_workers:
+                return
+            self.notification_adapter.notify(
+                result.due_word_count,
+                result.estimated_minutes,
+            )
+            self.reminder_banner.show_reminder(
+                result.due_word_count,
+                result.estimated_minutes,
+            )
+            logger.info(
+                "Review reminder triggered due_count=%s",
+                result.due_word_count,
+            )
+        elif action == "snooze":
+            logger.info("Review reminder snoozed")
+
+    def _reminder_task_failed(self, message: str) -> None:
+        logger.error(
+            "Reminder background action failed action=%s message=%s",
+            self.reminder_worker_action,
+            message,
+        )
+
+    def _reminder_worker_finished(self) -> None:
+        if self.reminder_worker is not None:
+            self.reminder_worker.deleteLater()
+        self.reminder_worker = None
+        self.reminder_worker_action = None
+        self._start_next_reminder_task()
 
     def closeEvent(self, event) -> None:
         active_workers = self._active_workers()
@@ -207,6 +274,7 @@ class MainWindow(QMainWindow):
             self.review_page.worker,
             self.analysis_page.worker,
             self.chat_page.worker,
+            self.reminder_worker,
         )
         return [
             worker for worker in workers if worker is not None and worker.isRunning()

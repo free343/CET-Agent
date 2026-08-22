@@ -137,9 +137,11 @@ Local Ollama:
 - `app/domain/reminder_policy.py` is deterministic and independently tested.
 - It suppresses reminders with no due words, during a review, during cooldown/snooze, before 08:00, after 23:00, or after the day's work is complete.
 - `app/services/reminder_service.py` persists notification, snooze, and completion state across restarts.
+- Reminder evaluation reloads the authoritative runtime row inside a serialized transaction. `evaluate_and_claim` records the cooldown in that same transaction, so concurrent application instances cannot both win the same notification opportunity.
 - ReminderService accepts an injectable clock so constructor state and explicit evaluations use one deterministic time source; this prevents tests and state transitions from drifting across real midnight.
 - A newly due word on the same day clears a stale completed state.
 - A far-future persisted notification timestamp cannot suppress reminders indefinitely after a system-clock correction; only a small rollback within the configured cooldown remains suppressed.
+- Main-window reminder evaluation, snooze persistence, and post-session completion checks share one FIFO `AsyncWorker` queue. Duplicate timer evaluations are coalesced, and no reminder database operation blocks Qt event handling.
 - `app/infrastructure/notification_adapter.py` provides a Qt system-tray notification.
 - `app/ui/widgets/reminder_banner.py` contains the actionable “start review” and “snooze 30 minutes” buttons.
 - `app/ui/main_window.py` waits for active dashboard, review, analysis, and chat QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues.
@@ -169,11 +171,12 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 140 passed in 4.71s | 2026-08-22 |
+| Full pytest suite | 144 passed in 4.86s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
 | Ruff format gate | 82 files already formatted | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 54 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
+| Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
 | Concurrent fresh bootstrap | three repeated two-worker runs on separate fresh databases all returned 4,611 words and one activation per worker; regression test also passed | 2026-08-22 |
 | Bootstrap/logging failure safety | forced schema-upgrade failure disposed its Database; simultaneous logging configuration registered exactly one file/console handler pair | 2026-08-22 |
 | Per-level first activation | fresh CET4 rebased exactly 3,320 untouched open words once; later CET6 activation independently rebased 1,278; repeat startup preserved the original activation | 2026-08-22 |
@@ -193,7 +196,7 @@ Update this section after every material change. Never report a feature as verif
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup smoke | five consecutive schema-v3 startup/exit runs passed with asynchronous initial dashboard load; no QThread destruction or database-disposal failure | 2026-08-22 |
+| Offscreen startup smoke | three consecutive schema-v3 startup/exit runs passed with asynchronous dashboard and serialized reminder workers; no QThread destruction or database-disposal failure | 2026-08-22 |
 | SQLite integrity and foreign keys | 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
@@ -228,8 +231,7 @@ python main.py
 
 - Native OS notifications do not contain action buttons; actions exist only in the in-app banner.
 - Chat is intentionally single-turn and has no bounded conversation persistence.
-- Reminder timer evaluation, post-session remaining-due confirmation, snooze, and completion persistence still run synchronously on the GUI thread. Move them behind one serialized reminder-task boundary so ReminderService's in-memory state cannot race across workers.
-- Multiple application instances serialize review writes but do not coordinate active-review reminder suppression, so duplicate cross-process notifications remain possible.
+- Multiple application instances now share notification cooldown claims, but they do not yet publish an active-review lease; one instance can therefore notify while another instance is actively reviewing.
 - Structured AI fields and the visible in-session chat transcript do not yet have explicit size/count budgets.
 - Complete the remaining native Windows validation for tray/toast behavior, real 30-minute snooze timing, and closing during an uncached active AI request.
 
@@ -277,6 +279,7 @@ python main.py
 34. Independent level activation: a CET level's open wordbank release anchor is created only on first real activation. Only cards with no ReviewLog, no last review, and zero review count may be rebased; curated words and any learned state are immutable under this operation.
 35. Convergent bootstrap: connection-level WAL negotiation receives the same bounded busy tolerance as transactional writes, every first-start mutation remains serialized and idempotent, and the bootstrap function owns disposal whenever it cannot return a usable Database.
 36. Page-owned background work: each interactive page permits at most one database/model worker at a time, renders results only on the Qt thread, and exposes its active worker to the main-window deferred-close coordinator. Dashboard refreshes coalesce; review submissions preserve the current card until persistence succeeds.
+37. Atomic reminder claim: the persisted runtime row is authoritative at evaluation time. A process may present a notification only after it records the cooldown under the SQLite writer reservation; local startup snapshots never decide cross-process ownership. Reminder database actions are FIFO-serialized off the GUI thread.
 
 ## 8. Development constraints
 

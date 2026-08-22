@@ -5,9 +5,11 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from threading import Lock
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.config import Settings, settings
 from app.db.models import ReminderRuntimeState
@@ -41,28 +43,55 @@ class ReminderService:
         self.last_snooze_time: datetime | None = None
         self.today_completed = False
         self.review_session_active = False
+        self._session_state_lock = Lock()
         self._state_date = ensure_utc(self._clock()).astimezone().date()
         self._load_persisted_state()
 
     def evaluate(self, now: datetime | None = None) -> ReminderStatus:
+        return self._evaluate(now, claim_notification=False)
+
+    def evaluate_and_claim(self, now: datetime | None = None) -> ReminderStatus:
+        """Atomically claim a notification slot when the policy allows one."""
+        return self._evaluate(now, claim_notification=True)
+
+    def _evaluate(
+        self,
+        now: datetime | None,
+        *,
+        claim_notification: bool,
+    ) -> ReminderStatus:
         checked_at = ensure_utc(now or self._clock())
-        self._reset_for_new_day(checked_at)
         due_count = self.review_service.due_count(checked_at)
-        if due_count > 0 and self.today_completed:
-            # A card may become due again later on the same day. In that case
-            # the previously completed daily state is no longer true.
-            self.today_completed = False
-            self._save_persisted_state()
-        decision = self.policy.evaluate(
-            ReminderContext(
-                current_time=checked_at,
-                due_word_count=due_count,
-                last_notification_time=self.last_notification_time,
-                last_snooze_time=self.last_snooze_time,
-                today_completed=self.today_completed,
-                review_session_active=self.review_session_active,
+        local_date = checked_at.astimezone().date()
+        with self.review_service.database.session() as session:
+            self.review_service.database.begin_serialized_write(session)
+            state = self._get_or_create_state(session)
+            if (
+                state.last_snooze_at is not None
+                and state.last_snooze_at.astimezone().date() != local_date
+            ):
+                state.last_snooze_at = None
+            today_completed = state.completed_local_date == local_date.isoformat()
+            if due_count > 0 and today_completed:
+                # A card may become due again later on the same day. In that
+                # case the previously completed daily state is no longer true.
+                state.completed_local_date = None
+                today_completed = False
+            with self._session_state_lock:
+                review_session_active = self.review_session_active
+            decision = self.policy.evaluate(
+                ReminderContext(
+                    current_time=checked_at,
+                    due_word_count=due_count,
+                    last_notification_time=state.last_notification_at,
+                    last_snooze_time=state.last_snooze_at,
+                    today_completed=today_completed,
+                    review_session_active=review_session_active,
+                )
             )
-        )
+            if claim_notification and decision.should_notify:
+                state.last_notification_at = checked_at
+        self._sync_from_state(state, local_date)
         return ReminderStatus(
             decision=decision,
             due_word_count=due_count,
@@ -70,53 +99,59 @@ class ReminderService:
         )
 
     def notification_sent(self, now: datetime | None = None) -> None:
-        self.last_notification_time = ensure_utc(now or self._clock())
-        self._save_persisted_state()
+        checked_at = ensure_utc(now or self._clock())
+        with self.review_service.database.session() as session:
+            self.review_service.database.begin_serialized_write(session)
+            state = self._get_or_create_state(session)
+            state.last_notification_at = checked_at
+        self._sync_from_state(state, checked_at.astimezone().date())
 
     def snooze(self, now: datetime | None = None) -> None:
-        self.last_snooze_time = ensure_utc(now or self._clock())
-        self._save_persisted_state()
+        checked_at = ensure_utc(now or self._clock())
+        with self.review_service.database.session() as session:
+            self.review_service.database.begin_serialized_write(session)
+            state = self._get_or_create_state(session)
+            state.last_snooze_at = checked_at
+        self._sync_from_state(state, checked_at.astimezone().date())
 
     def set_review_session_active(self, active: bool) -> None:
-        self.review_session_active = active
+        with self._session_state_lock:
+            self.review_session_active = active
 
-    def mark_today_completed(self) -> None:
-        self.today_completed = True
-        self._save_persisted_state()
+    def mark_today_completed(self, now: datetime | None = None) -> None:
+        checked_at = ensure_utc(now or self._clock())
+        local_date = checked_at.astimezone().date()
+        with self.review_service.database.session() as session:
+            self.review_service.database.begin_serialized_write(session)
+            state = self._get_or_create_state(session)
+            state.completed_local_date = local_date.isoformat()
+        self._sync_from_state(state, local_date)
 
     def remaining_due_count(self, now: datetime | None = None) -> int:
         return self.review_service.due_count(ensure_utc(now or self._clock()))
 
-    def _reset_for_new_day(self, now: datetime) -> None:
-        local_date = now.astimezone().date()
-        if local_date != self._state_date:
-            self._state_date = local_date
-            self.today_completed = False
-            self.last_snooze_time = None
-            self._save_persisted_state()
-
     def _load_persisted_state(self) -> None:
         with self.review_service.database.session() as session:
-            state = session.scalar(
-                select(ReminderRuntimeState).where(ReminderRuntimeState.id == 1)
-            )
-            if state is None:
-                session.add(ReminderRuntimeState(id=1))
-                return
-            self.last_notification_time = state.last_notification_at
-            self.last_snooze_time = state.last_snooze_at
-            self.today_completed = (
-                state.completed_local_date == self._state_date.isoformat()
-            )
+            self.review_service.database.begin_serialized_write(session)
+            state = self._get_or_create_state(session)
+        self._sync_from_state(state, self._state_date)
 
-    def _save_persisted_state(self) -> None:
-        with self.review_service.database.session() as session:
-            state = session.get(ReminderRuntimeState, 1)
-            if state is None:
-                state = ReminderRuntimeState(id=1)
-                session.add(state)
-            state.last_notification_at = self.last_notification_time
-            state.last_snooze_at = self.last_snooze_time
-            state.completed_local_date = (
-                self._state_date.isoformat() if self.today_completed else None
-            )
+    @staticmethod
+    def _get_or_create_state(session: Session) -> ReminderRuntimeState:
+        state = session.scalar(
+            select(ReminderRuntimeState).where(ReminderRuntimeState.id == 1)
+        )
+        if state is None:
+            state = ReminderRuntimeState(id=1)
+            session.add(state)
+        return state
+
+    def _sync_from_state(
+        self,
+        state: ReminderRuntimeState,
+        local_date: date,
+    ) -> None:
+        self._state_date = local_date
+        self.last_notification_time = state.last_notification_at
+        self.last_snooze_time = state.last_snooze_at
+        self.today_completed = state.completed_local_date == local_date.isoformat()
