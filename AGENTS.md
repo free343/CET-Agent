@@ -92,9 +92,12 @@ Local Ollama:
 - Review timestamps must advance monotonically for each word, preventing delayed or duplicate submissions from moving a learning state backwards.
 - Due ordering prioritizes longest overdue, then higher lapse count, then higher error count.
 - Review batches default to 30; completing one batch loads another when more words are already due.
+- `app/domain/meaning_quiz.py` deterministically selects one correct Chinese meaning plus three unique local-vocabulary distractors. It prefers compatible part-of-speech evidence and nearby frequency, never calls an LLM, and returns no quiz when four reliable choices are unavailable.
+- `ReviewService` attaches stable meaning choices to due cards and records exact choice outcome/hint question types through the existing ReviewLog boundary. A wrong choice exposes only Again; active recall remains available as a fallback.
+- After all due work is complete, the learner may explicitly unlock five untouched future cards for the selected CET level. The serialized transaction refuses to unlock while any due card exists, never moves a reviewed card or another level, and persists the new due times across restart.
 - `app/services/learning_service.py` derives dashboard metrics from ReviewLog rather than trusting only aggregate LearningState values.
 - Dashboard statistics ignore future-dated ReviewLog rows so clock/import anomalies cannot inflate completed counts, accuracy, streaks, or wrong-word rankings.
-- `app/ui/review_page.py` supports reveal plus Again/Hard/Good/Easy with Space/1/2/3/4 shortcuts. Due-queue reads, review submissions, and post-batch queue reloads run through one page-owned `AsyncWorker`; controls remain guarded until each database operation completes.
+- `app/ui/review_page.py` presents active recall and four-choice recognition in one workflow. Before feedback, 1/2/3/4 selects a meaning; afterward the same keys map to Again/Hard/Good/Easy. The completion state exposes the voluntary five-word continuation action. Due-queue reads, unlocks, submissions, and post-batch reloads run through one page-owned `AsyncWorker`.
 - Starting a review session from sidebar navigation dismisses any visible reminder banner, preventing stale counts from remaining above an active review.
 - `app/ui/dashboard_page.py` shows due count, completed today, seven-day accuracy, streak, and frequent wrong words. Statistics load off the GUI thread; refresh requests arriving during a load are coalesced into one follow-up refresh.
 
@@ -135,6 +138,7 @@ Local Ollama:
 - The local assistant rejects empty, general-chat, real-time, and professional out-of-scope requests without calling a model. The Chat UI consumes the structured route instead of comparing a magic confidence threshold.
 - Questions above 4,000 normalized characters are refused before any Provider call. Providers request at most 2,048 output tokens, ordinary answers are bounded to 4,000 characters, model names to 200 characters, and the Chat/Analysis text documents retain only 200/300 blocks respectively.
 - Chat keeps at most the four most recent successful in-session exchanges and applies a separate 6,000-character history budget before prompt construction. Failed, degraded, refused, and incomplete exchanges are never retained; history is intentionally memory-only and disappears when the application closes.
+- `ChatPanel` is reusable as both the full assistant page and a collapsible right-side review assistant. The compact panel captures a labeled snapshot of only the current word at send time, offers three quick questions, and passes at most 2,500 context characters through the centralized Prompt layer. Its input focus is outside review-shortcut scope.
 
 ### Reminder and desktop lifecycle
 
@@ -151,7 +155,7 @@ Local Ollama:
 - `app/infrastructure/notification_adapter.py` keeps the Qt system tray and prefers Windows-Toasts on Windows. Native Toast and the in-app banner both expose “start review” and “snooze 30 minutes”; native callbacks are queued through a Qt signal bridge before touching UI state. Native initialization/send failures degrade to the Qt tray bubble.
 - Installer-marked frozen builds use the dedicated `CET.Agent.Desktop` AUMID created by the Start Menu shortcut. Source/portable runs cannot claim that identity merely because an installed shortcut also exists. Every process tracks and removes only its own Toast rows during close, so dead action buttons do not remain and one instance cannot clear another instance's notification history.
 - `app/ui/widgets/reminder_banner.py` remains the always-visible in-app copy of both notification actions.
-- `app/ui/main_window.py` waits for active dashboard, review, analysis, chat, and reminder QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues. Attaching a close watcher is followed by an `isRunning()` re-check, so a worker that finishes between discovery and signal connection cannot leave the hidden window waiting forever. The smoke path closes the real window instead of terminating the event loop around live workers, and deferred close explicitly ends the application after a hidden window has released its final lease.
+- `app/ui/main_window.py` waits for active dashboard, review, embedded-review-assistant, full-chat, analysis, and reminder QThreads before destroying the window. If a finishing task starts a chained reload during deferred close, the new worker is also watched before shutdown continues. Attaching a close watcher is followed by an `isRunning()` re-check, so a worker that finishes between discovery and signal connection cannot leave the hidden window waiting forever. The smoke path closes the real window instead of terminating the event loop around live workers, and deferred close explicitly ends the application after a hidden window has released its final lease.
 
 ### Resilience and diagnostics
 
@@ -180,17 +184,20 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 175 passed in 6.62s | 2026-08-22 |
+| Full pytest suite | 189 passed in 6.73s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Ruff format gate | 89 files already formatted | 2026-08-22 |
-| Mypy application/scripts check | exit code 0; 57 source files | 2026-08-22 |
+| Ruff format gate | 93 files already formatted | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 60 source files | 2026-08-22 |
 | Non-blocking dashboard/review UI | worker-thread identity, rendered dashboard result, refresh coalescing, safe failure state, asynchronous queue load/submission, batch reload, and active-worker tracking passed; 19 focused tests passed | 2026-08-22 |
 | Serialized reminder tasks and atomic claim | two concurrent ReminderService instances produced exactly one notification winner; FIFO task order and non-GUI thread identity passed; snooze/day rollover and persisted completion regressions passed | 2026-08-22 |
 | Exact reminder wake-up | persisted Snooze and claimed-notification cooldowns expose one absolute 30-minute expiry; UI millisecond conversion is exact, non-negative, and Qt-bounded; restart evaluation reconstructs the same target; focused reminder/UI tests passed | 2026-08-22 |
 | Actionable Windows notifications | four focused tests passed: exact Start/Snooze action payloads, background-thread callback delivery on the Qt GUI thread, frozen install-marker/AUMID selection, native-send failure fallback, and per-process Toast cleanup. A live installed Toast was present under `CET.Agent.Desktop` with both exact action arguments; process close reduced that history from 1 to 0 | 2026-08-22 |
+| Manual native-notification actions | the user physically clicked both actions in the real Windows notification flyout and confirmed that “start review” and “snooze 30 minutes” both worked without issue | 2026-08-22 |
 | Cross-instance active-review lease | independent owners coexist; releasing one preserves another; observer notifications are suppressed; expired leases are removed; hidden review-worker results cannot republish activity | 2026-08-22 |
 | AI capacity budgets | oversized question refusal, 4,000-character chat truncation, 32,000-character structured raw guard, bounded schema fields/lists/options, 2,048-token Provider requests, and 200/300-block UI documents passed | 2026-08-22 |
 | Bounded in-session chat context | four-exchange/6,000-character budgets, complete-pair retention, prompt role order, and second-question UI context propagation passed; history remains memory-only | 2026-08-22 |
+| Integrated learning workspace | 47 focused deterministic/service/UI regressions passed: unique four-choice construction and insufficient-option fallback, objective outcome logging, wrong-answer Again guard, five-word continuation with selected-level/history/due-priority protection, current-word assistant snapshot, shortcut isolation, and embedded-worker shutdown tracking | 2026-08-22 |
+| Real vocabulary quiz queue | 28 current CET4 due cards all received four choices; five background queue loads ran in 0.374–0.417s, maximum 0.417s | 2026-08-22 |
 | Concurrent fresh bootstrap | three repeated two-worker runs on separate fresh databases all returned 4,611 words and one activation per worker; regression test also passed | 2026-08-22 |
 | Bootstrap/logging failure safety | forced schema-upgrade failure disposed its Database; simultaneous logging configuration registered exactly one file/console handler pair | 2026-08-22 |
 | Per-level first activation | fresh CET4 rebased exactly 3,320 untouched open words once; later CET6 activation independently rebased 1,278; repeat startup preserved the original activation | 2026-08-22 |
@@ -210,18 +217,19 @@ Update this section after every material change. Never report a feature as verif
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
 | Open vocabulary artifact | deterministic rebuild hash matched `1afc9925…9a16f`; 4,598 unique rows, 3,320 CET4 + 1,278 CET6, Chinese meaning and phonetic coverage 100%, no curated overlap | 2026-08-22 |
 | Bundled vocabulary import | 4,611 total words/states; second import inserted 0; invalid/duplicate/out-of-range rows rejected before mutation | 2026-08-22 |
-| Offscreen startup/shutdown smoke | 20 consecutive exit-code-0 runs; subprocess regression passed; real close path waits for lease-release worker and explicitly quits after hidden deferred close, eliminating the prior `0xC0000409` crash and post-close hang | 2026-08-22 |
+| Offscreen startup/shutdown smoke | prior 20-run lifecycle baseline plus five consecutive exit-code-0 runs after the split review/assistant UI; subprocess regression passed and no process remained | 2026-08-22 |
 | SQLite integrity and foreign keys | schema v4; 4,611 runtime words (3,329 CET4 + 1,282 CET6); `integrity_check=ok`; no foreign-key violations; no stale review leases | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
 | Ollama embedding through cached provider | 2 vectors, dimension 768; cold 20.159s; cache rows 0→2→2 | 2026-08-22 |
 | Semantic graph rebuild | 7 candidates, 5 edges, 3 clusters; `embedding_available=true` | 2026-08-22 |
 | Structured cluster JSON and AI cache hit | first live result `cached=false`; second `cached=true`; Pydantic passed | 2026-08-22 |
-| Latest warm full local-AI validation | exit code 0 on schema v4 repeat startup; chat 2.606s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
+| Latest warm full local-AI validation | exit code 0 on schema v4 repeat startup; chat 2.611s; embedding cache rows remained 7→7→7; graph 7 candidates/5 edges/3 clusters; structured analysis cached true→true | 2026-08-22 |
+| Live contextual review answer | right-panel-equivalent `adapt` word/phonetic/meaning/example snapshot produced a non-degraded Chinese answer from `qwen2.5:3b`; model and application paths completed successfully | 2026-08-22 |
 | Live uncached bounded structured output | `accept/except` analysis under the 2,048-token Provider limit returned non-degraded schema-valid output for both words; 829 JSON characters | 2026-08-22 |
 | Frozen writable-path resolution | source/frozen/local-app-data/home-fallback/relative-database cases plus non-overwriting `.env.example` install passed | 2026-08-22 |
-| Windows onedir package | final rebuild includes Windows-Toasts/WinRT binaries and distribution license metadata; isolated smoke exited 0, created schema v4 with 4,611 words and `integrity_check=ok`, installed `.env.example`, and left the package directory state-free | 2026-08-22 |
-| Unsigned Windows installer | Inno Setup 6.7.3 compiled `CET-Agent-Setup-0.1.0.exe` (44.68 MiB, SHA-256 `6D72CBD2FD5734FBC36056FF87D67F90921878EDA984271C3E37C1DF97D2C1F9`, intentionally `NotSigned`). Current-user silent install created executable/uninstaller/install marker/Start shortcut/registry entry; installed smoke produced schema v4, 4,611 words and `integrity_check=ok`; silent uninstall removed program/shortcut/registry while preserving the learning database byte-for-byte | 2026-08-22 |
+| Windows onedir package | post-learning-workspace rebuild includes Windows-Toasts/WinRT binaries and distribution license metadata; isolated smoke created schema v4 with 4,611 words and `integrity_check=ok`, installed `.env.example`, left the package directory state-free, and the temporary runtime was removed | 2026-08-22 |
+| Unsigned Windows installer | Inno Setup 6.7.3 compiled the current `CET-Agent-Setup-0.1.0.exe` (44.70 MiB, SHA-256 `CAE17E79AD36B7E99410312EFB4BA7DF9E6371F51326600B099202E7217C5D62`, intentionally `NotSigned`). The unchanged current-user install/uninstall flow previously passed executable/shortcut/registry creation, installed smoke, and byte-for-byte learning-data preservation | 2026-08-22 |
 | Visible Windows desktop flow | navigation, reminder banner, Space reveal, `3=Good`, next-card load, cluster selection/readability, cached AI display, settings, close/restart passed; Snooze then immediate close exited with zero process/lease remnants; a controlled 15-second local Provider proved close began with two live workers before the response and exited automatically after completion; final installed build visibly rendered the actionable in-app reminder while the matching native Toast existed in Windows history | 2026-08-22 |
 
 Baseline commands:
@@ -247,11 +255,14 @@ python main.py
 
 ## 6. Known incomplete work
 
+### Product acceptance
+
+- Automated, static, local-AI, source-smoke, frozen-smoke, and installer-build validation is complete for the new learning workspace. A final visible Windows acceptance pass should still cover splitter resizing/collapse, long Chinese option wrapping, correct/wrong choice feedback, the five-word continuation button after an actually completed day, and asking the embedded assistant while advancing cards.
+
 ### Deferred delivery work
 
 - Application icon, Windows executable version resources, digital/code signing and its pipeline, and Git remote/hosted CI execution are explicitly deferred by current user direction. The current installer is therefore intentionally unsigned and uses default generated executable/installer resources.
 - The locally installed Inno Setup 6.7.3 compiler identifies itself as “Non-commercial use only”. This is sufficient for the present local/non-commercial validation; any commercial distribution must use an appropriately licensed Inno Setup compiler or replace the installer toolchain.
-- A physical human click on both buttons in the real Windows notification flyout is not recorded. The system accepted a dedicated-AUMID Toast containing both exact action nodes, and callback routing/thread affinity is deterministically tested, but a future release checklist should retain a two-click manual acceptance check on each supported Windows version.
 
 ## 7. Key design decisions
 
@@ -302,6 +313,9 @@ python main.py
 45. Layered notification delivery: deterministic ReminderService state decides whether a reminder exists; the operating-system adapter decides only how to present it. Native callbacks must enter Qt through a queued signal, and any native backend failure falls back to the tray without changing notification claims or scheduling.
 46. Notification identity ownership: only a frozen executable carrying the installer-only marker and matching Start shortcut may claim the dedicated AUMID. All source, portable, and installed processes remove their own tracked CET-Agent Toasts individually and never clear a whole identity, preserving reminders owned by concurrent instances.
 47. Current-user installer ownership: the installer copies only immutable program files under the user's Programs directory. Mutable learning state remains in the separate application-data root and survives upgrades/uninstall. Stable AppId/AUMID values are release compatibility contracts even while icon, version-resource, signature, and remote-delivery work is deferred.
+48. Deterministic recognition quiz: the correct meaning and all distractors come from validated local vocabulary, with stable ranking/shuffling and a safe active-recall fallback. The LLM may explain a card but never creates or grades its choices.
+49. Voluntary staged continuation: extra learning is an explicit five-card transaction over untouched future cards for one selected level. Existing due work blocks the unlock, reviewed cards are immutable, and completing the current pack is required before requesting another.
+50. Snapshot contextual assistance: the embedded assistant captures only the current ReviewItem when Send is pressed, labels that word in the transcript, bounds context in the Prompt layer, and shares the existing Provider/routing rules without sharing a worker or history with the full assistant page.
 
 ## 8. Development constraints
 

@@ -10,6 +10,7 @@ from app.ai.llm_provider import Message
 from app.ai.schemas import ClusterAnalysis
 
 PROMPT_VERSION = "cluster-v1"
+MAX_CHAT_CONTEXT_CHARACTERS = 2_500
 
 VOCABULARY_SYSTEM_PROMPT = """You are a CET vocabulary learning assistant.
 
@@ -59,6 +60,8 @@ def cluster_analysis_messages(payload: dict, *, retry: bool = False) -> list[Mes
 def chat_messages(
     question: str,
     history: Sequence[ChatExchange] = (),
+    *,
+    context: str | None = None,
 ) -> list[Message]:
     messages: list[Message] = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
     for exchange in bounded_chat_history(history):
@@ -68,5 +71,13 @@ def chat_messages(
                 {"role": "assistant", "content": exchange.assistant},
             )
         )
-    messages.append({"role": "user", "content": question})
+    current_question = question
+    if context:
+        bounded_context = context.strip()[:MAX_CHAT_CONTEXT_CHARACTERS]
+        current_question = (
+            "以下是学习界面提供的当前词卡上下文，只用于回答本次问题；"
+            "不要据此推断其他学习记录。\n"
+            f"CONTEXT:\n{bounded_context}\n\nQUESTION:\n{question}"
+        )
+    messages.append({"role": "user", "content": current_question})
     return messages

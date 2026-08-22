@@ -10,10 +10,12 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 
 ## 已实现的 MVP
 
-- PySide6 桌面端：学习概览、单词复习、易混词分析、AI 助手和设置；
+- PySide6 桌面端：学习概览、单词复习、易混词分析、AI 助手和设置；复习工作区右侧同时提供可折叠的当前词卡 AI 助手；
 - SQLite + SQLAlchemy 2.x 本地数据层，显式版本迁移、首次启动自动建表并幂等导入经验证的开放词库；
 - 官方 FSRS-6 调度器，维护 Difficulty、Stability、学习阶段与下一次复习时间；
 - 完整 ReviewLog：评分、正确性、耗时、题型、答案和调度前后状态；
+- 本地词库驱动的确定性中文释义四选一；干扰项不由 LLM 生成，回答错误时只允许 Again，选项不足时安全退回主动回忆；
+- 今日到期任务完成后可主动领取 5 个从未学习的同等级新词；到期任务始终优先，已学习卡片不会被提前移动；
 - 确定性复习队列、统计和主动提醒策略，支持带操作按钮的 Windows 原生通知、持久化的精确 30 分钟 Snooze、后台原子通知领取和多窗口复习租约；
 - Personal Vocabulary Confusion Graph 与 connected-components 词簇；
 - 拼写、语义、共错和时间相关度的混合评分；
@@ -101,7 +103,7 @@ macOS/Linux 激活命令为 `source .venv/bin/activate`，复制配置可使用 
 python main.py
 ```
 
-第一次运行会自动创建 `data/cet_agent.db`，按顺序升级到当前 schema 版本，并导入 13 条人工示例词和 4,598 条开放 CET 词汇。`STUDY_LEVEL=CET4` 或 `CET6` 决定复习队列、提醒和仪表盘统计的范围；每个级别在首次实际启用时独立按词频每天最多释放 20 个从未复习的开放词条，因此安装很久后再切换等级也不会瞬间形成数千条积压。人工示例词保持立即可用，已有复习历史和 FSRS 状态绝不会因等级切换而移动。升级和导入均可重复执行；升级失败会回滚，数据库版本高于应用支持范围时会拒绝启动，避免旧程序误写新结构。
+第一次运行会自动创建 `data/cet_agent.db`，按顺序升级到当前 schema 版本，并导入 13 条人工示例词和 4,598 条开放 CET 词汇。`STUDY_LEVEL=CET4` 或 `CET6` 决定复习队列、提醒和仪表盘统计的范围；每个级别在首次实际启用时独立按词频每天最多释放 20 个从未复习的开放词条，因此安装很久后再切换等级也不会瞬间形成数千条积压。完成当天到期任务后，可在完成页主动领取下一包 5 个同等级新词；领取操作不会跳过新出现的到期任务，也不会改动已有学习历史。人工示例词保持立即可用，已有复习历史和 FSRS 状态绝不会因等级切换而移动。升级和导入均可重复执行；升级失败会回滚，数据库版本高于应用支持范围时会拒绝启动，避免旧程序误写新结构。
 
 源码运行时数据库、日志和 `.env` 仍位于项目目录。冻结后的 Windows 版本从发行包读取词库，将数据库、日志、`.env` 与自动复制的 `.env.example` 写入 `%LOCALAPPDATA%\CET-Agent`，不会修改安装目录。
 
@@ -115,11 +117,10 @@ python scripts/build_open_vocabulary.py
 
 复习快捷键：
 
-- `Space`：显示释义；
-- `1`：Again；
-- `2`：Hard；
-- `3`：Good；
-- `4`：Easy。
+- `Space`：显示释义并按主动回忆提示流程继续；
+- 四选一尚未作答时，`1/2/3/4` 选择对应中文释义；
+- 查看反馈后，`1/2/3/4` 分别表示 Again/Hard/Good/Easy；答错时只有 Again 可用；
+- 右侧 AI 输入框获得焦点时，复习快捷键不会截获其中的空格或数字。
 
 ## 本地模型
 
@@ -134,7 +135,7 @@ EMBEDDING_BASE_URL=http://127.0.0.1:11434
 EMBEDDING_MODEL=nomic-embed-text
 ```
 
-先在 Ollama 中准备对应模型，再启动 CET-Agent。Ollama chat 使用 `/api/chat`，Embedding 使用 `/api/embed`；结构化错词分析将 Pydantic JSON Schema 传入请求并在本地再次验证。普通词汇问答会在当前界面内携带最多 4 组完整成功问答作为追问上下文，但不会把对话写入数据库。模型未启动、模型不存在、网络错误或非法 JSON 都会显示可恢复的降级结果。
+先在 Ollama 中准备对应模型，再启动 CET-Agent。Ollama chat 使用 `/api/chat`，Embedding 使用 `/api/embed`；结构化错词分析将 Pydantic JSON Schema 传入请求并在本地再次验证。普通词汇问答会在当前界面内携带最多 4 组完整成功问答作为追问上下文，但不会把对话写入数据库。复习页右侧助手只携带发送瞬间的当前词卡快照，回答会标注关联词；上下文在 Prompt 层限制为 2,500 字符，模型不能借此读取其他学习记录。模型未启动、模型不存在、网络错误或非法 JSON 都会显示可恢复的降级结果。
 
 Windows 可直接使用本机 Ollama 可执行文件下载并验证：
 
@@ -189,7 +190,7 @@ python -m ruff format --check app scripts tests main.py
 python -m mypy
 ```
 
-测试覆盖 FSRS-6 官方参考向量、schema 升级、复习事务、UI 复习闭环、编辑距离、四类关系分数、Embedding 缓存、图连通分量、AI JSON 校验与缓存，以及提醒策略。无显示环境可做启动检查：
+测试覆盖 FSRS-6 官方参考向量、schema 升级、复习事务、确定性四选一、主动加练、右侧上下文助手、UI 复习闭环、编辑距离、四类关系分数、Embedding 缓存、图连通分量、AI JSON 校验与缓存，以及提醒策略。无显示环境可做启动检查：
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'

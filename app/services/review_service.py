@@ -7,11 +7,17 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.db.database import Database
 from app.db.models import LearningState, ReviewLog, Word, WordLevel
 from app.db.repositories import LearningStateRepository, ReviewLogRepository
 from app.domain.fsrs_scheduler import Rating, ReviewScheduleResult, schedule_review
+from app.domain.meaning_quiz import (
+    MeaningCandidate,
+    MeaningOption,
+    build_meaning_options,
+)
 from app.utils.datetime_utils import ensure_utc, utc_now
 
 logger = logging.getLogger(__name__)
@@ -28,6 +34,7 @@ class ReviewItem:
     lapse_count: int
     error_count: int
     next_review_at: datetime
+    meaning_options: tuple[MeaningOption, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +44,13 @@ class ReviewSubmission:
     rating: Rating
     is_correct: bool
     schedule: ReviewScheduleResult
+
+
+@dataclass(frozen=True, slots=True)
+class ExtraStudyResult:
+    unlocked_count: int
+    remaining_count: int
+    due_count: int
 
 
 class ReviewService:
@@ -57,6 +71,7 @@ class ReviewService:
                 .due_query(checked_at, self.study_level)
                 .limit(safe_limit)
             ).all()
+            candidates_by_level = self._meaning_candidates_by_level(session, states)
             return [
                 ReviewItem(
                     word_id=state.word.id,
@@ -68,9 +83,51 @@ class ReviewService:
                     lapse_count=state.lapse_count,
                     error_count=state.error_count,
                     next_review_at=state.next_review_at,
+                    meaning_options=build_meaning_options(
+                        MeaningCandidate(
+                            word_id=state.word.id,
+                            meaning=state.word.meaning,
+                            frequency=state.word.frequency,
+                            review_count=state.review_count,
+                        ),
+                        candidates_by_level.get(state.word.level, []),
+                    ),
                 )
                 for state in states
             ]
+
+    @staticmethod
+    def _meaning_candidates_by_level(
+        session: Session,
+        states: list[LearningState],
+    ) -> dict[WordLevel, list[MeaningCandidate]]:
+        levels = {state.word.level for state in states}
+        if not levels:
+            return {}
+        candidates_by_level: dict[WordLevel, list[MeaningCandidate]] = {
+            level: [] for level in levels
+        }
+        rows = session.execute(
+            select(
+                Word.id,
+                Word.meaning,
+                Word.frequency,
+                Word.level,
+                LearningState.review_count,
+            )
+            .join(LearningState, LearningState.word_id == Word.id)
+            .where(Word.level.in_(levels))
+        ).all()
+        for row in rows:
+            candidates_by_level[row.level].append(
+                MeaningCandidate(
+                    word_id=row.id,
+                    meaning=row.meaning,
+                    frequency=row.frequency,
+                    review_count=row.review_count,
+                )
+            )
+        return candidates_by_level
 
     def due_count(self, now: datetime | None = None) -> int:
         checked_at = ensure_utc(now or utc_now())
@@ -90,6 +147,82 @@ class ReviewService:
                 )
                 or 0
             )
+
+    def unlock_extra_words(
+        self,
+        limit: int = 5,
+        now: datetime | None = None,
+    ) -> ExtraStudyResult:
+        """Make a small explicit pack of untouched future cards due now."""
+
+        if self.study_level is None:
+            raise ValueError("Extra study requires a selected CET level")
+        if limit <= 0:
+            raise ValueError("Extra study limit must be positive")
+        checked_at = ensure_utc(now or utc_now())
+        safe_limit = min(int(limit), 50)
+        with self.database.session() as session:
+            self.database.begin_serialized_write(session)
+            due_count = int(
+                session.scalar(
+                    select(func.count(LearningState.id))
+                    .join(Word, LearningState.word_id == Word.id)
+                    .where(
+                        Word.level == self.study_level,
+                        LearningState.next_review_at <= checked_at,
+                    )
+                )
+                or 0
+            )
+            has_review = (
+                select(ReviewLog.id)
+                .where(ReviewLog.word_id == LearningState.word_id)
+                .exists()
+            )
+            eligible = (
+                Word.level == self.study_level,
+                LearningState.next_review_at > checked_at,
+                LearningState.review_count == 0,
+                LearningState.last_review_at.is_(None),
+                ~has_review,
+            )
+            total = int(
+                session.scalar(
+                    select(func.count(LearningState.id))
+                    .join(Word, LearningState.word_id == Word.id)
+                    .where(*eligible)
+                )
+                or 0
+            )
+            states: list[LearningState] = []
+            if due_count == 0:
+                states = session.scalars(
+                    select(LearningState)
+                    .join(Word, LearningState.word_id == Word.id)
+                    .where(*eligible)
+                    .order_by(
+                        LearningState.next_review_at.asc(),
+                        Word.frequency.desc(),
+                        Word.id.asc(),
+                    )
+                    .limit(safe_limit)
+                    .with_for_update()
+                ).all()
+            for state in states:
+                state.next_review_at = checked_at
+            unlocked_count = len(states)
+        logger.info(
+            "Extra study unlocked level=%s count=%s remaining=%s due=%s",
+            self.study_level.value,
+            unlocked_count,
+            max(0, total - unlocked_count),
+            due_count,
+        )
+        return ExtraStudyResult(
+            unlocked_count=unlocked_count,
+            remaining_count=max(0, total - unlocked_count),
+            due_count=due_count,
+        )
 
     def submit_review(
         self,

@@ -50,8 +50,10 @@ class FakeProvider(LLMProvider):
         self.responses = responses
         self.model = model
         self.calls = 0
+        self.messages = []
 
     def generate(self, messages, response_schema=None) -> str:
+        self.messages.append(messages)
         response = self.responses[min(self.calls, len(self.responses) - 1)]
         self.calls += 1
         return response
@@ -242,3 +244,18 @@ def test_chat_answer_is_truncated_to_capacity_budget(database) -> None:
 
     assert len(answer.text) == MAX_CHAT_RESPONSE_CHARS
     assert answer.text.endswith("…")
+
+
+def test_contextual_chat_passes_only_explicit_word_context(database) -> None:
+    provider = FakeProvider(["adapt 可以联想 adjust。"])
+
+    answer = AIService(database, provider).ask(
+        "这个词怎么记？",
+        context="word=adapt\nmeaning=适应；改编",
+    )
+
+    assert answer.degraded is False
+    prompt = provider.messages[0][-1]["content"]
+    assert "word=adapt" in prompt
+    assert "meaning=适应；改编" in prompt
+    assert "这个词怎么记？" in prompt

@@ -6,6 +6,7 @@ QPushButton#NavButton { color: #cbd5e1; text-align: left; border: none; border-r
 QPushButton#NavButton:hover { background: #25324a; color: white; }
 QPushButton#NavButton:checked { background: #3b82f6; color: white; font-weight: 600; }
 QFrame#Card { background: white; border: 1px solid #e4e8ef; border-radius: 12px; }
+QWidget#AssistantPanel { background: white; border-left: 1px solid #d7dce5; }
 QLabel#PageTitle { font-size: 25px; font-weight: 700; color: #111827; }
 QLabel#Metric { font-size: 28px; font-weight: 700; color: #2563eb; }
 QLabel#Word { font-size: 38px; font-weight: 700; color: #111827; }
@@ -14,5 +15,7 @@ QPushButton#PrimaryButton { background: #2563eb; color: white; border: none; bor
 QPushButton#PrimaryButton:hover { background: #1d4ed8; }
 QPushButton#RatingButton { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; }
 QPushButton#RatingButton:hover { border-color: #2563eb; color: #2563eb; }
+QPushButton#ChoiceButton { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; text-align: left; }
+QPushButton#ChoiceButton:hover { border-color: #2563eb; background: #eff6ff; }
 QLineEdit, QTextEdit { background: white; border: 1px solid #d7dce5; border-radius: 8px; padding: 9px; }
 """

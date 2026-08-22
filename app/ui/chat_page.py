@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from functools import partial
 from typing import Protocol
 
 from PySide6.QtWidgets import (
@@ -25,6 +27,12 @@ from app.ui.widgets.async_worker import AsyncWorker
 CHAT_TRANSCRIPT_MAX_BLOCKS = 200
 
 
+@dataclass(frozen=True, slots=True)
+class ChatContext:
+    label: str
+    content: str
+
+
 class ChatService(Protocol):
     @property
     def advanced_available(self) -> bool: ...
@@ -37,25 +45,54 @@ class ChatService(Protocol):
         *,
         use_advanced: bool = False,
         history: Sequence[ChatExchange] = (),
+        context: str | None = None,
     ) -> AIAnswer: ...
 
 
-class ChatPage(QWidget):
-    def __init__(self, service: ChatService) -> None:
+class ChatPanel(QWidget):
+    def __init__(
+        self,
+        service: ChatService,
+        *,
+        compact: bool = False,
+        context_provider: Callable[[], ChatContext | None] | None = None,
+        on_question_submitted: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__()
         self.service = service
+        self.context_provider = context_provider
+        self.on_question_submitted = on_question_submitted
         self.pending_question = ""
+        self.pending_context: ChatContext | None = None
         self.history: deque[ChatExchange] = deque(maxlen=MAX_CHAT_HISTORY_EXCHANGES)
         self.worker: AsyncWorker | None = None
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 28, 32, 28)
+        margin = 16 if compact else 32
+        layout.setContentsMargins(margin, 20 if compact else 28, margin, 20)
         layout.setSpacing(14)
-        title = QLabel("AI 词汇助手")
+        title = QLabel("随学随问" if compact else "AI 词汇助手")
         title.setObjectName("PageTitle")
-        subtitle = QLabel("可询问四六级词汇、基础语法、词义辨析和记忆技巧。")
+        subtitle = QLabel(
+            "自动关联发送时的当前单词。"
+            if compact
+            else "可询问四六级词汇、基础语法、词义辨析和记忆技巧。"
+        )
         subtitle.setStyleSheet("color: #64748b;")
         layout.addWidget(title)
         layout.addWidget(subtitle)
+        if compact:
+            quick_row = QHBoxLayout()
+            for label, question in (
+                ("怎么记", "这个词怎么记？"),
+                ("讲例句", "请解释这个词在例句中的用法。"),
+                ("辨析", "这个词容易和哪些词混淆？"),
+            ):
+                button = QPushButton(label)
+                button.clicked.connect(
+                    lambda _checked=False, value=question: self._send_quick(value)
+                )
+                quick_row.addWidget(button)
+            layout.addLayout(quick_row)
 
         self.transcript = QTextEdit()
         self.transcript.setReadOnly(True)
@@ -99,8 +136,17 @@ class ChatPage(QWidget):
         if not question or self.worker is not None or self.pending_question:
             return
         self.pending_question = question
+        if self.context_provider is not None:
+            self.pending_context = self.context_provider()
+        if self.on_question_submitted is not None:
+            self.on_question_submitted()
         self.input.clear()
-        self.transcript.append(f"你：{question}\n")
+        context_label = (
+            f"（关于 {self.pending_context.label}）"
+            if self.pending_context is not None
+            else ""
+        )
+        self.transcript.append(f"你{context_label}：{question}\n")
         assessment = self.service.route_question(question)
         if assessment.route is QueryRoute.CONFIRM_ADVANCED:
             self.routing_reason.setText(f"{assessment.reason} 是否使用高级模型回答？")
@@ -117,12 +163,16 @@ class ChatPage(QWidget):
         self.transcript.append("CET-Agent：正在思考…")
         question = self.pending_question
         history = tuple(self.history)
+        request = partial(
+            self.service.ask,
+            question,
+            use_advanced=use_advanced,
+            history=history,
+        )
+        if self.pending_context:
+            request = partial(request, context=self.pending_context.content)
         self.worker = AsyncWorker(
-            lambda: self.service.ask(
-                question,
-                use_advanced=use_advanced,
-                history=history,
-            ),
+            request,
             parent=self,
         )
         self.worker.result_ready.connect(self._show_answer)
@@ -156,8 +206,20 @@ class ChatPage(QWidget):
             self.worker.deleteLater()
         self.worker = None
         self.pending_question = ""
+        self.pending_context = None
         self._set_input_enabled(True)
 
     def _set_input_enabled(self, enabled: bool) -> None:
         self.input.setEnabled(enabled)
         self.send_button.setEnabled(enabled)
+
+    def _send_quick(self, question: str) -> None:
+        if self.worker is not None or self.pending_question:
+            return
+        self.input.setText(question)
+        self.send()
+
+
+class ChatPage(ChatPanel):
+    def __init__(self, service: ChatService) -> None:
+        super().__init__(service)

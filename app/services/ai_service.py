@@ -62,6 +62,7 @@ class AIService:
         *,
         use_advanced: bool = False,
         history: Sequence[ChatExchange] = (),
+        context: str | None = None,
     ) -> AIAnswer:
         assessment = self.route_question(question)
         if assessment.route is QueryRoute.REFUSE:
@@ -79,7 +80,7 @@ class AIService:
                 degraded=True,
             )
         try:
-            text = provider.generate(chat_messages(question, history))
+            text = provider.generate(chat_messages(question, history, context=context))
             return AIAnswer(
                 text=self._bounded_chat_text(text),
                 confidence=assessment.confidence,

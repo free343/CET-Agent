@@ -9,7 +9,12 @@ from PySide6.QtWidgets import QApplication
 from app.ai.conversation import ChatExchange
 from app.ai.schemas import AIAnswer
 from app.domain.query_routing import QueryAssessment, QueryRoute, QueryRoutingPolicy
-from app.ui.chat_page import CHAT_TRANSCRIPT_MAX_BLOCKS, ChatPage
+from app.ui.chat_page import (
+    CHAT_TRANSCRIPT_MAX_BLOCKS,
+    ChatContext,
+    ChatPage,
+    ChatPanel,
+)
 
 
 class LowConfidenceService:
@@ -29,6 +34,7 @@ class RecordingChatService:
 
     def __init__(self) -> None:
         self.histories: list[tuple[ChatExchange, ...]] = []
+        self.contexts: list[str | None] = []
 
     @staticmethod
     def route_question(_question: str) -> QueryAssessment:
@@ -40,12 +46,14 @@ class RecordingChatService:
         *,
         use_advanced: bool = False,
         history=(),
+        context: str | None = None,
     ) -> AIAnswer:
         self.histories.append(tuple(history))
+        self.contexts.append(context)
         return AIAnswer(text=f"answer to {question}", confidence=0.9, model="fake")
 
 
-def _wait_until_idle(page: ChatPage, app: QApplication) -> None:
+def _wait_until_idle(page: ChatPanel, app: QApplication) -> None:
     while page.worker is not None:
         worker = page.worker
         assert worker.wait(2_000)
@@ -104,3 +112,24 @@ def test_second_question_receives_first_exchange_as_context() -> None:
         ChatExchange(user="adapt meaning", assistant="answer to adapt meaning"),
     )
     page.deleteLater()
+
+
+def test_compact_chat_panel_captures_current_word_context() -> None:
+    app = QApplication.instance() or QApplication([])
+    service = RecordingChatService()
+    panel = ChatPanel(
+        service,
+        compact=True,
+        context_provider=lambda: ChatContext(
+            "adapt",
+            "word=adapt; meaning=适应；改编",
+        ),
+    )
+
+    panel.input.setText("怎么记？")
+    panel.send()
+    _wait_until_idle(panel, app)
+
+    assert service.contexts == ["word=adapt; meaning=适应；改编"]
+    assert "关于 adapt" in panel.transcript.toPlainText()
+    panel.deleteLater()

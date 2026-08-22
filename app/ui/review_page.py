@@ -7,20 +7,29 @@ import time
 from collections.abc import Callable
 from functools import partial
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QFrame,
+    QApplication,
     QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
 from app.domain.fsrs_scheduler import Rating
-from app.services.review_service import ReviewItem, ReviewService, ReviewSubmission
+from app.services.review_service import (
+    ExtraStudyResult,
+    ReviewItem,
+    ReviewService,
+    ReviewSubmission,
+)
+from app.ui.chat_page import ChatContext, ChatPanel, ChatService
 from app.ui.widgets.async_worker import AsyncWorker
+from app.ui.widgets.review_card import ReviewCardWidget
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +40,7 @@ class ReviewPage(QWidget):
         service: ReviewService,
         on_reviewed: Callable[[], object] | None = None,
         on_session_state_changed: Callable[[bool], None] | None = None,
+        assistant_service: ChatService | None = None,
     ) -> None:
         super().__init__()
         self.service = service
@@ -41,9 +51,16 @@ class ReviewPage(QWidget):
         self.worker: AsyncWorker | None = None
         self.worker_action: str | None = None
         self._load_after_worker = False
+        self.selected_answer = ""
+        self.choice_correct: bool | None = None
+        self.used_hint = False
         self.started_at = time.monotonic()
 
-        outer = QVBoxLayout(self)
+        workspace = QHBoxLayout(self)
+        workspace.setContentsMargins(0, 0, 0, 0)
+        workspace.setSpacing(0)
+        learning_area = QWidget()
+        outer = QVBoxLayout(learning_area)
         outer.setContentsMargins(32, 28, 32, 28)
         outer.setSpacing(18)
         heading = QHBoxLayout()
@@ -53,65 +70,67 @@ class ReviewPage(QWidget):
         self.progress.setStyleSheet("color: #64748b;")
         heading.addWidget(title)
         heading.addStretch()
+        self.assistant_toggle: QPushButton | None = None
+        if assistant_service is not None:
+            self.assistant_toggle = QPushButton("隐藏 AI 助手")
+            self.assistant_toggle.clicked.connect(self.toggle_assistant)
+            heading.addWidget(self.assistant_toggle)
         heading.addWidget(self.progress)
         outer.addLayout(heading)
 
-        card = QFrame()
-        card.setObjectName("Card")
-        card.setMinimumHeight(420)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(44, 36, 44, 36)
-        card_layout.setSpacing(14)
-        self.word_label = QLabel("准备开始")
-        self.word_label.setObjectName("Word")
-        self.word_label.setAlignment(QtAlignmentCenter)
-        self.phonetic_label = QLabel("")
-        self.phonetic_label.setObjectName("Phonetic")
-        self.phonetic_label.setAlignment(QtAlignmentCenter)
-        self.answer_label = QLabel("")
-        self.answer_label.setWordWrap(True)
-        self.answer_label.setAlignment(QtAlignmentCenter)
-        self.answer_label.setStyleSheet("font-size: 18px; color: #334155;")
-        self.example_label = QLabel("")
-        self.example_label.setWordWrap(True)
-        self.example_label.setAlignment(QtAlignmentCenter)
-        self.example_label.setStyleSheet("color: #64748b; font-style: italic;")
-
-        self.reveal_button = QPushButton("显示释义  Space")
-        self.reveal_button.setObjectName("PrimaryButton")
-        self.reveal_button.clicked.connect(self.reveal_answer)
-        self.rating_row = QHBoxLayout()
-        self.rating_buttons: dict[Rating, QPushButton] = {}
-        for rating, label in (
-            (Rating.AGAIN, "1  Again"),
-            (Rating.HARD, "2  Hard"),
-            (Rating.GOOD, "3  Good"),
-            (Rating.EASY, "4  Easy"),
-        ):
-            button = QPushButton(label)
-            button.setObjectName("RatingButton")
-            button.clicked.connect(
-                lambda _checked=False, value=rating: self.submit(value)
-            )
-            self.rating_buttons[rating] = button
-            self.rating_row.addWidget(button)
-
-        card_layout.addStretch()
-        card_layout.addWidget(self.word_label)
-        card_layout.addWidget(self.phonetic_label)
-        card_layout.addSpacing(16)
-        card_layout.addWidget(self.answer_label)
-        card_layout.addWidget(self.example_label)
-        card_layout.addSpacing(12)
-        card_layout.addWidget(self.reveal_button, alignment=QtAlignmentCenter)
-        card_layout.addLayout(self.rating_row)
-        card_layout.addStretch()
+        card = ReviewCardWidget(
+            on_reveal=self.reveal_answer,
+            on_unlock=self.unlock_extra_study,
+            on_choice=self.select_meaning,
+            on_rating=self.submit,
+        )
+        self.word_label = card.word_label
+        self.phonetic_label = card.phonetic_label
+        self.answer_label = card.answer_label
+        self.example_label = card.example_label
+        self.choice_widget = card.choice_widget
+        self.choice_frame = self.choice_widget
+        self.choice_help = self.choice_widget.help_label
+        self.choice_buttons = self.choice_widget.buttons
+        self.reveal_button = card.reveal_button
+        self.continue_button = card.continue_button
+        self.rating_buttons = card.rating_buttons
         outer.addWidget(card)
         outer.addStretch()
 
-        QShortcut(QKeySequence("Space"), self, self.reveal_answer)
-        for key, rating in zip(("1", "2", "3", "4"), Rating, strict=True):
-            QShortcut(QKeySequence(key), self, partial(self.submit, rating))
+        self.assistant_panel: ChatPanel | None = None
+        self.workspace_splitter: QSplitter | None = None
+        if assistant_service is None:
+            workspace.addWidget(learning_area)
+        else:
+            self.workspace_splitter = QSplitter(Qt.Orientation.Horizontal)
+            self.workspace_splitter.setChildrenCollapsible(False)
+            self.workspace_splitter.addWidget(learning_area)
+            self.assistant_panel = ChatPanel(
+                assistant_service,
+                compact=True,
+                context_provider=self._assistant_context,
+                on_question_submitted=self._assistant_question_submitted,
+            )
+            self.assistant_panel.setObjectName("AssistantPanel")
+            self.assistant_panel.setMinimumWidth(290)
+            self.workspace_splitter.addWidget(self.assistant_panel)
+            self.workspace_splitter.setStretchFactor(0, 1)
+            self.workspace_splitter.setStretchFactor(1, 0)
+            self.workspace_splitter.setSizes([620, 340])
+            workspace.addWidget(self.workspace_splitter)
+
+        space_shortcut = QShortcut(
+            QKeySequence("Space"), learning_area, self.reveal_answer
+        )
+        space_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        for index, key in enumerate(("1", "2", "3", "4")):
+            shortcut = QShortcut(
+                QKeySequence(key),
+                learning_area,
+                partial(self._handle_number_key, index),
+            )
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self._set_ratings_enabled(False)
 
     def load_queue(self) -> bool:
@@ -123,6 +142,8 @@ class ReviewPage(QWidget):
         self.phonetic_label.clear()
         self.answer_label.clear()
         self.example_label.clear()
+        self._reset_choice_state()
+        self.continue_button.hide()
         self.reveal_button.setEnabled(False)
         self._set_ratings_enabled(False)
         self.progress.clear()
@@ -149,7 +170,11 @@ class ReviewPage(QWidget):
             self.phonetic_label.setText("做得很好，稍后再回来看看吧。")
             self.answer_label.clear()
             self.example_label.clear()
+            self.choice_frame.hide()
             self.reveal_button.setEnabled(False)
+            self.continue_button.setText("继续学习 5 个新词")
+            self.continue_button.setEnabled(True)
+            self.continue_button.show()
             self._set_ratings_enabled(False)
             self.progress.setText("0 个待复习")
             return
@@ -158,16 +183,47 @@ class ReviewPage(QWidget):
         self.phonetic_label.setText(self.current.phonetic)
         self.answer_label.clear()
         self.example_label.clear()
+        self._reset_choice_state()
+        self.continue_button.hide()
+        self.choice_widget.set_options(self.current.meaning_options)
         self.reveal_button.setEnabled(True)
+        self.reveal_button.setText("想不起来，显示释义  Space")
         self.reveal_button.show()
         self._set_ratings_enabled(False)
         self.progress.setText(f"还剩 {len(self.queue) + 1} 个")
         self.started_at = time.monotonic()
 
     def reveal_answer(self) -> None:
+        if (
+            self.current is None
+            or self.choice_correct is not None
+            or self._assistant_has_focus()
+        ):
+            return
+        self.used_hint = True
+        self.selected_answer = ""
+        self.choice_correct = None
+        self.answer_label.setText(self.current.meaning)
+        self.example_label.setText(self.current.example)
+        self.choice_widget.disable_and_highlight()
+        self.reveal_button.hide()
+        self._set_ratings_enabled(True)
+
+    def select_meaning(self, index: int) -> None:
         if self.current is None:
             return
-        self.answer_label.setText(self.current.meaning)
+        option = self.choice_widget.option(index)
+        if option is None:
+            return
+        self.selected_answer = option.meaning
+        self.choice_correct = option.is_correct
+        self.choice_widget.disable_and_highlight(selected_index=index)
+        if self.choice_correct:
+            self.choice_help.setText("回答正确，请按真实回忆难度评分。")
+            self.answer_label.setText(f"回答正确\n{self.current.meaning}")
+        else:
+            self.choice_help.setText("回答错误，本题将按 Again 记录。")
+            self.answer_label.setText(f"回答错误\n正确释义：{self.current.meaning}")
         self.example_label.setText(self.current.example)
         self.reveal_button.hide()
         self._set_ratings_enabled(True)
@@ -183,16 +239,53 @@ class ReviewPage(QWidget):
         self._set_ratings_enabled(False)
         self.worker_action = "submit"
         self.worker = AsyncWorker(
-            self.service.submit_review,
-            self.current.word_id,
-            rating,
-            response_ms,
+            partial(
+                self.service.submit_review,
+                self.current.word_id,
+                rating,
+                response_ms,
+                question_type=self._question_type(),
+                user_answer=self.selected_answer,
+            ),
             parent=self,
         )
         self.worker.result_ready.connect(self._review_saved)
         self.worker.failed.connect(self._task_failed)
         self.worker.finished.connect(self._worker_finished)
         self.worker.start()
+
+    def unlock_extra_study(self) -> None:
+        if self.worker is not None or self.current is not None:
+            return
+        self.continue_button.setEnabled(False)
+        self.continue_button.setText("正在准备新词…")
+        if self.on_session_state_changed:
+            self.on_session_state_changed(True)
+        self.worker_action = "unlock"
+        self.worker = AsyncWorker(self.service.unlock_extra_words, 5, parent=self)
+        self.worker.result_ready.connect(self._extra_words_unlocked)
+        self.worker.failed.connect(self._task_failed)
+        self.worker.finished.connect(self._worker_finished)
+        self.worker.start()
+
+    def _extra_words_unlocked(self, result: ExtraStudyResult) -> None:
+        if result.due_count > 0:
+            self.word_label.setText("发现新的到期复习任务")
+            self.phonetic_label.setText("优先完成到期任务后再继续学习新词。")
+            self.continue_button.hide()
+            self._load_after_worker = True
+            return
+        if result.unlocked_count == 0:
+            self.word_label.setText("当前等级的词汇已经全部加入学习计划")
+            self.phonetic_label.setText("可以切换等级，或稍后复习已经学过的词。")
+            self.continue_button.setText("没有更多新词")
+            if self.on_session_state_changed:
+                self.on_session_state_changed(False)
+            return
+        self.word_label.setText(f"已加入 {result.unlocked_count} 个新词")
+        self.phonetic_label.setText("正在开始加练…")
+        self.continue_button.hide()
+        self._load_after_worker = True
 
     def _review_saved(self, _submission: ReviewSubmission) -> None:
         if self.on_reviewed:
@@ -207,6 +300,7 @@ class ReviewPage(QWidget):
             self.phonetic_label.clear()
             self.answer_label.clear()
             self.example_label.clear()
+            self.choice_frame.hide()
             self.reveal_button.setEnabled(False)
             self.progress.clear()
             self._load_after_worker = True
@@ -216,6 +310,14 @@ class ReviewPage(QWidget):
             logger.error("Review submission failed: %s", message)
             self._set_ratings_enabled(self.current is not None)
             self._show_error("本次记录未保存，请稍后重试。")
+            return
+        if self.worker_action == "unlock":
+            logger.error("Could not unlock extra study: %s", message)
+            self.continue_button.setText("继续学习 5 个新词")
+            self.continue_button.setEnabled(True)
+            if self.on_session_state_changed:
+                self.on_session_state_changed(False)
+            self._show_error("暂时无法准备加练词汇，请稍后重试。")
             return
         logger.error("Could not load review queue: %s", message)
         self.queue = []
@@ -227,6 +329,7 @@ class ReviewPage(QWidget):
         self.answer_label.clear()
         self.example_label.clear()
         self.reveal_button.setEnabled(False)
+        self.continue_button.hide()
         self._set_ratings_enabled(False)
         self.progress.clear()
         self._show_error("暂时无法读取复习任务，请稍后重试。")
@@ -241,14 +344,67 @@ class ReviewPage(QWidget):
             self.load_queue()
 
     def _set_ratings_enabled(self, enabled: bool) -> None:
-        for button in self.rating_buttons.values():
-            button.setEnabled(enabled)
+        for rating, button in self.rating_buttons.items():
+            button.setEnabled(
+                enabled and (self.choice_correct is not False or rating is Rating.AGAIN)
+            )
+
+    def _handle_number_key(self, index: int) -> None:
+        if self._assistant_has_focus():
+            return
+        if self.choice_widget.choose_with_number(index):
+            return
+        self.submit(tuple(Rating)[index])
+
+    def _reset_choice_state(self) -> None:
+        self.selected_answer = ""
+        self.choice_correct = None
+        self.used_hint = False
+        self.choice_widget.reset()
 
     def _show_error(self, message: str) -> None:
         QMessageBox.warning(self, "CET-Agent", message)
 
+    def _question_type(self) -> str:
+        if not self.selected_answer:
+            return "meaning_recall_with_hint"
+        outcome = "correct" if self.choice_correct else "wrong"
+        hint_suffix = "_with_ai_hint" if self.used_hint else ""
+        return f"meaning_choice_{outcome}{hint_suffix}"
 
-# Kept as a local alias to avoid repeating a long Qt enum in the layout code.
-from PySide6.QtCore import Qt
+    def toggle_assistant(self) -> None:
+        if self.assistant_panel is None or self.assistant_toggle is None:
+            return
+        show_panel = self.assistant_panel.isHidden()
+        self.assistant_panel.setVisible(show_panel)
+        self.assistant_toggle.setText("隐藏 AI 助手" if show_panel else "显示 AI 助手")
+        if show_panel and self.workspace_splitter is not None:
+            self.workspace_splitter.setSizes([620, 340])
 
-QtAlignmentCenter = Qt.AlignmentFlag.AlignCenter
+    def _assistant_context(self) -> ChatContext | None:
+        if self.current is None:
+            return None
+        return ChatContext(
+            label=self.current.word,
+            content=(
+                f"word={self.current.word}\n"
+                f"phonetic={self.current.phonetic}\n"
+                f"meaning={self.current.meaning}\n"
+                f"example={self.current.example}"
+            ),
+        )
+
+    def _assistant_question_submitted(self) -> None:
+        if self.current is None:
+            return
+        self.used_hint = True
+        if self.choice_correct is None:
+            self.choice_help.setText("已使用 AI 提示，请结合实际回忆情况评分。")
+
+    def _assistant_has_focus(self) -> bool:
+        if self.assistant_panel is None:
+            return False
+        focus = QApplication.focusWidget()
+        return focus is not None and (
+            focus is self.assistant_panel or self.assistant_panel.isAncestorOf(focus)
+        )

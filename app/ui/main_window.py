@@ -101,6 +101,7 @@ class MainWindow(QMainWindow):
             review_service,
             self._review_completed,
             self._review_session_changed,
+            ai_service,
         )
         self.analysis_page = AnalysisPage(analysis_service, ai_service)
         self.chat_page = ChatPage(ai_service)
@@ -328,9 +329,11 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _active_workers(self) -> list:
+        review_assistant = getattr(self.review_page, "assistant_panel", None)
         workers = (
             self.dashboard_page.worker,
             self.review_page.worker,
+            getattr(review_assistant, "worker", None),
             self.analysis_page.worker,
             self.chat_page.worker,
             self.reminder_worker,
