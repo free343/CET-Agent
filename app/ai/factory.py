@@ -15,16 +15,41 @@ from app.db.database import Database
 
 
 def create_llm_provider(settings: Settings) -> LLMProvider:
-    provider = settings.llm_provider.strip().lower()
+    return _create_chat_provider(
+        settings.llm_provider,
+        settings.llm_base_url,
+        settings.llm_model,
+        settings.llm_api_key,
+        setting_name="LLM_PROVIDER",
+    )
+
+
+def create_advanced_llm_provider(settings: Settings) -> LLMProvider | None:
+    if not settings.advanced_llm_provider:
+        return None
+    return _create_chat_provider(
+        settings.advanced_llm_provider,
+        settings.advanced_llm_base_url,
+        settings.advanced_llm_model,
+        settings.advanced_llm_api_key,
+        setting_name="ADVANCED_LLM_PROVIDER",
+    )
+
+
+def _create_chat_provider(
+    provider_name: str,
+    base_url: str,
+    model: str,
+    api_key: str | None,
+    *,
+    setting_name: str,
+) -> LLMProvider:
+    provider = provider_name.strip().lower().replace("_", "-")
     if provider == "ollama":
-        return OllamaProvider(settings.llm_base_url, settings.llm_model)
-    if provider in {"openai-compatible", "openai_compatible"}:
-        return OpenAICompatibleProvider(
-            settings.llm_base_url,
-            settings.llm_model,
-            settings.llm_api_key,
-        )
-    raise ValueError(f"Unsupported LLM_PROVIDER: {settings.llm_provider}")
+        return OllamaProvider(base_url, model)
+    if provider == "openai-compatible":
+        return OpenAICompatibleProvider(base_url, model, api_key)
+    raise ValueError(f"Unsupported {setting_name}: {provider_name}")
 
 
 def create_embedding_provider(

@@ -147,6 +147,20 @@ def test_vocabulary_question_about_off_topic_noun_still_calls_model(database) ->
     assert answer.model == "fake-3b"
 
 
+def test_explicit_advanced_choice_uses_independent_provider(database) -> None:
+    local = FakeProvider(["local"], model="local-model")
+    advanced = FakeProvider(["advanced"], model="advanced-model")
+    service = AIService(database, local, advanced)
+
+    answer = service.ask("请逐句分析这篇文章的词汇", use_advanced=True)
+
+    assert service.advanced_available is True
+    assert local.calls == 0
+    assert advanced.calls == 1
+    assert answer.text == "advanced"
+    assert answer.model == "advanced-model"
+
+
 def test_unavailable_model_returns_safe_cluster_fallback(database) -> None:
     result = AIService(database, UnavailableProvider()).analyze_cluster(
         sample_cluster()

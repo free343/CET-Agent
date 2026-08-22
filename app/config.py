@@ -55,7 +55,17 @@ class Settings:
     llm_provider: str = os.getenv("LLM_PROVIDER", "ollama")
     llm_model: str = os.getenv("LLM_MODEL", "qwen2.5:3b")
     llm_base_url: str = os.getenv("LLM_BASE_URL", "http://127.0.0.1:11434")
-    llm_api_key: str | None = os.getenv("LLM_API_KEY") or None
+    llm_api_key: str | None = field(
+        default=os.getenv("LLM_API_KEY") or None,
+        repr=False,
+    )
+    advanced_llm_provider: str = os.getenv("ADVANCED_LLM_PROVIDER", "").strip()
+    advanced_llm_model: str = os.getenv("ADVANCED_LLM_MODEL", "").strip()
+    advanced_llm_base_url: str = os.getenv("ADVANCED_LLM_BASE_URL", "").strip()
+    advanced_llm_api_key: str | None = field(
+        default=os.getenv("ADVANCED_LLM_API_KEY") or None,
+        repr=False,
+    )
     embedding_provider: str = os.getenv("EMBEDDING_PROVIDER", "ollama")
     embedding_base_url: str = os.getenv(
         "EMBEDDING_BASE_URL",
@@ -85,6 +95,16 @@ class Settings:
     def __post_init__(self) -> None:
         if self.study_level not in {"CET4", "CET6"}:
             raise ValueError("STUDY_LEVEL must be CET4 or CET6")
+        advanced_provider = self.advanced_llm_provider.lower().replace("_", "-")
+        if advanced_provider not in {"", "ollama", "openai-compatible"}:
+            raise ValueError("ADVANCED_LLM_PROVIDER is unsupported")
+        if advanced_provider and not (
+            self.advanced_llm_model and self.advanced_llm_base_url
+        ):
+            raise ValueError(
+                "ADVANCED_LLM_MODEL and ADVANCED_LLM_BASE_URL are required when "
+                "ADVANCED_LLM_PROVIDER is enabled"
+            )
         if not math.isfinite(self.confusion_threshold) or not (
             0.0 <= self.confusion_threshold <= 1.0
         ):

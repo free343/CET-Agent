@@ -24,6 +24,8 @@ class SettingsPage(QWidget):
         form.addRow("LLM Provider", QLabel(settings.llm_provider))
         form.addRow("本地模型", QLabel(settings.llm_model))
         form.addRow("服务地址", QLabel(settings.llm_base_url))
+        advanced_model = settings.advanced_llm_model or "未启用"
+        form.addRow("高级模型", QLabel(advanced_model))
         form.addRow("Embedding Provider", QLabel(settings.embedding_provider))
         form.addRow("Embedding 地址", QLabel(settings.embedding_base_url))
         form.addRow("Embedding 模型", QLabel(settings.embedding_model))

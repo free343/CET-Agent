@@ -143,7 +143,16 @@ python scripts/validate_local_ai.py
 
 最后一个脚本会幂等准备 Demo 数据，并通过项目自身 Provider/Service 验证聊天、Embedding 缓存、语义图重建、Pydantic 结构化词簇分析和 AI 缓存复用。Ollama 直连会绕过操作系统代理设置，避免 localhost 请求被代理捕获。
 
-若使用兼容接口，可设置 `LLM_PROVIDER=openai-compatible`。API key 只能写入本地 `.env` 的 `LLM_API_KEY`，不会写死或输出到日志。高级模型路由接口已预留，第一版未默认配置云端服务。
+若本地默认模型使用兼容接口，可设置 `LLM_PROVIDER=openai-compatible`。高级模型默认关闭；需要时可独立配置，不会改变本地 Provider：
+
+```text
+ADVANCED_LLM_PROVIDER=openai-compatible
+ADVANCED_LLM_MODEL=<模型名称>
+ADVANCED_LLM_BASE_URL=<兼容接口地址>
+ADVANCED_LLM_API_KEY=<仅保存在本地 .env>
+```
+
+高级 Provider 也可设为 `ollama`，适合把更大的本地模型作为可选升级。只有用户在复杂问题提示中明确点击“使用高级模型”才会调用它。`LLM_API_KEY` 和 `ADVANCED_LLM_API_KEY` 只能写入被 Git 忽略的本地 `.env`；设置对象的文本表示、UI 和日志均不会包含密钥。未配置 `ADVANCED_LLM_PROVIDER` 时，高级按钮保持禁用。
 
 ## Demo 数据
 

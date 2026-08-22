@@ -8,7 +8,11 @@ import sys
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from app.ai.factory import create_embedding_provider, create_llm_provider
+from app.ai.factory import (
+    create_advanced_llm_provider,
+    create_embedding_provider,
+    create_llm_provider,
+)
 from app.bootstrap import initialize_database
 from app.config import settings
 from app.services.ai_service import AIService
@@ -28,7 +32,8 @@ def run(*, smoke_test: bool = False) -> int:
     try:
         database = initialize_database()
         llm_provider = create_llm_provider(settings)
-        ai_service = AIService(database, llm_provider)
+        advanced_provider = create_advanced_llm_provider(settings)
+        ai_service = AIService(database, llm_provider, advanced_provider)
         embedding_provider = create_embedding_provider(settings, database)
         review_service = ReviewService(database, settings.study_level)
         window = MainWindow(

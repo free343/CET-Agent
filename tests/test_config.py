@@ -24,8 +24,22 @@ from app.config import Settings
         {"reminder_start_time": time(23, 0), "reminder_end_time": time(8, 0)},
         {"reminder_cooldown_minutes": 0},
         {"study_level": "TOEFL"},
+        {"advanced_llm_provider": "unsupported"},
+        {"advanced_llm_provider": "ollama"},
     ),
 )
 def test_settings_reject_unsafe_values(overrides: dict[str, object]) -> None:
     with pytest.raises(ValueError):
         Settings(**overrides)
+
+
+def test_settings_repr_never_contains_api_keys() -> None:
+    value = repr(
+        Settings(
+            llm_api_key="local-secret-sentinel",
+            advanced_llm_api_key="advanced-secret-sentinel",
+        )
+    )
+
+    assert "local-secret-sentinel" not in value
+    assert "advanced-secret-sentinel" not in value
