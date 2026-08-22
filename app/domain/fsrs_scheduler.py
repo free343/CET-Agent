@@ -1,9 +1,4 @@
-"""A compact FSRS-compatible spaced-repetition scheduler.
-
-The implementation keeps the FSRS concepts of difficulty, stability, and
-retrievability without taking a dependency on a specific FSRS package. It is
-deliberately isolated so a full FSRS implementation can replace it later.
-"""
+"""Deterministic adapter around the official FSRS-6 Python implementation."""
 
 from __future__ import annotations
 
@@ -12,6 +7,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import IntEnum
 from typing import Protocol
+
+from fsrs import Card, Scheduler
+from fsrs import Rating as FSRSRating
+from fsrs import State as FSRSState
 
 from app.utils.datetime_utils import ensure_utc
 
@@ -27,7 +26,10 @@ class SchedulerState(Protocol):
     difficulty: float
     stability: float
     last_review_at: datetime | None
+    next_review_at: datetime
     review_count: int
+    fsrs_state: int
+    fsrs_step: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,37 +38,28 @@ class ReviewScheduleResult:
     new_stability: float
     next_review_at: datetime
     scheduled_days: float
+    fsrs_state: int
+    fsrs_step: int | None
 
 
-INITIAL_STABILITY = {
-    Rating.AGAIN: 0.10,
-    Rating.HARD: 0.80,
-    Rating.GOOD: 2.50,
-    Rating.EASY: 5.00,
+_RATING_MAP = {
+    Rating.AGAIN: FSRSRating.Again,
+    Rating.HARD: FSRSRating.Hard,
+    Rating.GOOD: FSRSRating.Good,
+    Rating.EASY: FSRSRating.Easy,
 }
 
-
-def _clamp(value: float, lower: float, upper: float) -> float:
-    return max(lower, min(upper, value))
-
-
-def _difficulty_after_rating(difficulty: float, rating: Rating) -> float:
-    # Low ratings make the card harder. A small mean-reversion term prevents
-    # difficulty from becoming stuck at an extreme after a few outlier reviews.
-    change = {
-        Rating.AGAIN: 0.90,
-        Rating.HARD: 0.30,
-        Rating.GOOD: -0.20,
-        Rating.EASY: -0.65,
-    }[rating]
-    mean_reversion = 0.04 * (5.0 - difficulty)
-    return _clamp(difficulty + change + mean_reversion, 1.0, 10.0)
-
-
-def _retrievability(elapsed_days: float, stability: float) -> float:
-    """Estimated recall probability, with stability defined at 90% recall."""
-    safe_stability = max(0.1, stability)
-    return _clamp(math.exp(math.log(0.9) * elapsed_days / safe_stability), 0.0, 1.0)
+# One deterministic ten-minute learning/relearning step preserves the MVP's
+# useful short Again interval while letting Good graduate directly to an
+# FSRS-computed review interval. Interval fuzzing is disabled so equal history
+# always produces equal scheduling output.
+_SCHEDULER = Scheduler(
+    desired_retention=0.9,
+    learning_steps=(timedelta(minutes=10),),
+    relearning_steps=(timedelta(minutes=10),),
+    maximum_interval=36_500,
+    enable_fuzzing=False,
+)
 
 
 def schedule_review(
@@ -74,53 +67,63 @@ def schedule_review(
     rating: Rating | int,
     review_time: datetime,
 ) -> ReviewScheduleResult:
-    """Calculate the next schedule without mutating persistence state."""
+    """Calculate the next official FSRS-6 state without mutating persistence."""
     selected_rating = Rating(rating)
     reviewed_at = ensure_utc(review_time)
-    old_difficulty = _clamp(float(state.difficulty), 1.0, 10.0)
-    new_difficulty = _difficulty_after_rating(old_difficulty, selected_rating)
+    card = _to_fsrs_card(state, reviewed_at)
+    updated_card, _review_log = _SCHEDULER.review_card(
+        card,
+        _RATING_MAP[selected_rating],
+        review_datetime=reviewed_at,
+    )
+    if updated_card.stability is None or updated_card.difficulty is None:
+        raise RuntimeError("FSRS did not produce a complete memory state")
 
-    if state.last_review_at is None or state.review_count == 0:
-        new_stability = INITIAL_STABILITY[selected_rating]
-    else:
-        elapsed = max(
-            0.0,
-            (reviewed_at - ensure_utc(state.last_review_at)).total_seconds() / 86_400,
-        )
-        old_stability = max(0.1, float(state.stability))
-        recall = _retrievability(elapsed, old_stability)
-        if selected_rating is Rating.AGAIN:
-            # A lapse sharply reduces stability, while retaining a small amount
-            # of prior memory instead of resetting the card completely.
-            new_stability = max(0.10, min(1.0, old_stability * 0.35))
-        else:
-            rating_factor = {
-                Rating.HARD: 0.65,
-                Rating.GOOD: 1.55,
-                Rating.EASY: 2.45,
-            }[selected_rating]
-            difficulty_factor = (11.0 - new_difficulty) / 10.0
-            lateness_factor = max(0.08, 1.0 - recall)
-            growth = 1.0 + rating_factor * difficulty_factor * lateness_factor
-            if selected_rating is Rating.EASY:
-                growth += 0.18
-            new_stability = old_stability * growth
+    next_review_at = ensure_utc(updated_card.due)
+    scheduled_days = (next_review_at - reviewed_at).total_seconds() / 86_400
+    if scheduled_days <= 0 or not math.isfinite(scheduled_days):
+        raise RuntimeError("FSRS produced an invalid review interval")
 
-    new_stability = round(_clamp(new_stability, 0.10, 36_500.0), 6)
-    if selected_rating is Rating.AGAIN:
-        scheduled_days = 10.0 / (24 * 60)
-    elif selected_rating is Rating.HARD:
-        scheduled_days = max(0.5, new_stability * 0.80)
-    elif selected_rating is Rating.GOOD:
-        scheduled_days = max(1.0, new_stability)
-    else:
-        scheduled_days = max(2.0, new_stability * 1.30)
-
-    scheduled_days = round(scheduled_days, 6)
     return ReviewScheduleResult(
-        new_difficulty=round(new_difficulty, 6),
-        new_stability=new_stability,
-        next_review_at=reviewed_at + timedelta(days=scheduled_days),
+        new_difficulty=float(updated_card.difficulty),
+        new_stability=float(updated_card.stability),
+        next_review_at=next_review_at,
         scheduled_days=scheduled_days,
+        fsrs_state=int(updated_card.state),
+        fsrs_step=updated_card.step,
     )
 
+
+def _to_fsrs_card(state: SchedulerState, reviewed_at: datetime) -> Card:
+    if state.review_count == 0:
+        return Card(due=reviewed_at)
+    if state.last_review_at is None:
+        raise ValueError("Reviewed FSRS state is missing last_review_at")
+
+    stability = float(state.stability)
+    difficulty = float(state.difficulty)
+    if not math.isfinite(stability) or stability <= 0:
+        raise ValueError("FSRS stability must be finite and positive")
+    if not math.isfinite(difficulty) or not 1.0 <= difficulty <= 10.0:
+        raise ValueError("FSRS difficulty must be finite and within 1..10")
+
+    try:
+        card_state = FSRSState(int(state.fsrs_state))
+    except ValueError as exc:
+        raise ValueError("Unknown persisted FSRS state") from exc
+    step = state.fsrs_step
+    if step is not None and step < 0:
+        raise ValueError("FSRS step cannot be negative")
+    if card_state is FSRSState.Review and step is not None:
+        raise ValueError("FSRS Review state cannot have a learning step")
+    if card_state is not FSRSState.Review and step is None:
+        raise ValueError("FSRS learning state requires a step")
+
+    return Card(
+        state=card_state,
+        step=step,
+        stability=stability,
+        difficulty=difficulty,
+        due=ensure_utc(state.next_review_at),
+        last_review=ensure_utc(state.last_review_at),
+    )

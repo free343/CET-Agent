@@ -12,7 +12,7 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 
 - PySide6 桌面端：学习概览、单词复习、易混词分析、AI 助手和设置；
 - SQLite + SQLAlchemy 2.x 本地数据层，显式版本迁移、首次启动自动建表并幂等导入示例词汇；
-- FSRS-compatible 调度器，维护 Difficulty、Stability 与下一次复习时间；
+- 官方 FSRS-6 调度器，维护 Difficulty、Stability、学习阶段与下一次复习时间；
 - 完整 ReviewLog：评分、正确性、耗时、题型、答案和调度前后状态；
 - 确定性复习队列、统计和主动提醒策略，支持 30 分钟 Snooze；
 - Personal Vocabulary Confusion Graph 与 connected-components 词簇；
@@ -54,7 +54,7 @@ UI 不直接查询数据库，也不直接调用模型。`ReviewService` 在同�
 
 ## Technical Highlights
 
-1. FSRS-compatible spaced repetition；
+1. Official FSRS-6 spaced repetition；
 2. Personal Vocabulary Confusion Graph；
 3. Hybrid error relation scoring；
 4. Algorithm + LLM separation；
@@ -157,7 +157,7 @@ python scripts/create_demo_data.py
 python -m pytest -q
 ```
 
-测试覆盖 FSRS 调度、复习事务、UI 复习闭环、编辑距离、四类关系分数、Embedding 缓存、图连通分量、AI JSON 校验与缓存，以及提醒策略。无显示环境可做启动检查：
+测试覆盖 FSRS-6 官方参考向量、schema 升级、复习事务、UI 复习闭环、编辑距离、四类关系分数、Embedding 缓存、图连通分量、AI JSON 校验与缓存，以及提醒策略。无显示环境可做启动检查：
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
@@ -168,7 +168,8 @@ python main.py --smoke-test
 
 - SQLite 时间通过自定义 SQLAlchemy 类型统一存储为 UTC，并在读取时恢复时区；
 - 数据库使用单行 `schema_version` 和显式连续迁移注册表；SQLite 升级前获取写锁，并在同一事务中更新结构与版本；
-- 简化 FSRS-compatible 实现隔离在 Domain 层，未来可替换成熟 FSRS 库；
+- 调度边界使用 MIT 许可的 [`py-fsrs` 6.3.2](https://github.com/open-spaced-repetition/py-fsrs)：目标记忆率 90%，学习与重学各使用一个 10 分钟步骤，并关闭 interval fuzzing 以保持确定性；
+- `LearningState` 持久化 FSRS Learning/Review/Relearning 状态和步骤，schema v2 会把旧的已复习卡安全接管为 Review；
 - 共错采用 24 小时窗口内的一对一贪心匹配，避免单条错误重复放大；
 - Temporal score 对每次错误寻找另一词最近错误并计算 `exp(-Δt/τ)`；
 - 超过 8 个词的 cluster 只把加权度最高的核心词提供给 LLM；

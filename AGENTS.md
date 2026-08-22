@@ -44,7 +44,7 @@ Do not add a framework or abstraction unless the current boundary actually needs
 - Workspace: `D:\work\english`.
 - The workspace is a local Git repository on branch `main`, initialized with a baseline commit on 2026-08-22. No remote is configured; inspect files before editing and preserve unrelated work.
 - Python target: 3.11+.
-- Runtime stack: PySide6, SQLite, SQLAlchemy 2.x, Pydantic, httpx, python-dotenv.
+- Runtime stack: PySide6, SQLite, SQLAlchemy 2.x, py-fsrs 6.3.2, Pydantic, httpx, python-dotenv.
 - Test runner: pytest.
 - Main entry point: `main.py`.
 - Runtime database: `data/cet_agent.db` (ignored by source control rules).
@@ -68,7 +68,7 @@ Local Ollama:
 ### Bootstrap and persistence
 
 - `app/bootstrap.py` configures logging, upgrades the database schema, imports seed words, and creates missing LearningState rows.
-- `app/db/migrations.py` owns the explicit sequential schema registry. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application.
+- `app/db/migrations.py` owns the explicit sequential schema registry, currently version 2. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application.
 - `app/config.py` loads `.env`, resolves relative SQLite paths from the project root, and owns all model, graph, reminder, and logging configuration.
 - Unsafe graph/reminder configuration is rejected at startup: thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
 - `app/db/models.py` defines Word, LearningState, ReviewLog, ConfusionEdge, AIAnalysis, EmbeddingCache, and ReminderRuntimeState.
@@ -78,7 +78,8 @@ Local Ollama:
 
 ### Review and learning loop
 
-- `app/domain/fsrs_scheduler.py` is an isolated simplified FSRS-compatible scheduler maintaining difficulty, stability, retrievability, and next-review time.
+- `app/domain/fsrs_scheduler.py` is a deterministic adapter over the official MIT-licensed `py-fsrs` 6.3.2 implementation of FSRS-6. It uses 90% desired retention, one ten-minute learning step, one ten-minute relearning step, a 36,500-day maximum, and no interval fuzzing.
+- LearningState persists FSRS Learning/Review/Relearning state and the active step. Schema migration 2 maps untouched legacy cards to Learning step 0 and reviewed legacy cards to Review without discarding their difficulty, stability, or history.
 - `app/services/review_service.py` deterministically selects due words and atomically updates LearningState plus ReviewLog.
 - Review timestamps must advance monotonically for each word, preventing delayed or duplicate submissions from moving a learning state backwards.
 - Due ordering prioritizes longest overdue, then higher lapse count, then higher error count.
@@ -147,14 +148,15 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 62 passed in 1.03s | 2026-08-22 |
+| Full pytest suite | 72 passed in 1.08s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
 | Mypy application/scripts check | exit code 0; 50 source files | 2026-08-22 |
-| Schema migration matrix | 4 focused tests passed: fresh, pre-version adoption, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
+| Schema migration matrix | 5 focused tests passed: fresh, pre-version adoption, v1→v2 FSRS state mapping, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
+| Official FSRS-6 reference vectors | initial Again/Hard/Good/Easy plus five-review sequence passed against py-fsrs 6.3.2 | 2026-08-22 |
 | Deterministic randomized algorithm invariants | 6,000 checks passed | 2026-08-22 |
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
-| Offscreen startup smoke | exit code 0; existing runtime database adopted as schema version 1 | 2026-08-22 |
-| SQLite integrity and foreign keys | schema version 1; `integrity_check=ok`; no foreign-key violations | 2026-08-22 |
+| Offscreen startup smoke | exit code 0; runtime database upgraded to schema version 2 | 2026-08-22 |
+| SQLite integrity and foreign keys | schema version 2; `integrity_check=ok`; no foreign-key violations; 6 Learning and 7 Review rows mapped | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
 | Ollama embedding through cached provider | 2 vectors, dimension 768; cold 20.159s; cache rows 0→2→2 | 2026-08-22 |
@@ -182,7 +184,6 @@ python main.py
 
 ### P1: correctness and data evolution
 
-- The scheduler is simplified FSRS-compatible, not full official FSRS. Evaluate a licensed lightweight implementation or calibrate the existing formula with reference-vector tests.
 - The 13-word sample is only a demonstration set. Add a legally usable, validated CET-4/CET-6 data import workflow before real study use.
 
 ### P2: product completeness
@@ -223,6 +224,7 @@ python main.py
 20. Review-session ownership: entering an active review dismisses the in-app reminder immediately; reminder content must not remain visible with a stale due count while the user is reviewing.
 21. SQLite write serialization: state-dependent review writes reserve the SQLite writer before reading; `with_for_update()` alone is not treated as protection on SQLite.
 22. Concurrent cache convergence: Embedding uses database upsert and AI analysis resolves a unique-key race by returning the already committed, locally revalidated winner.
+23. Official deterministic FSRS: scheduling delegates to pinned `py-fsrs` 6.3.2, with fuzzing disabled and reference-vector tests. The adapter keeps the application's stable Rating/result interface while schema v2 persists the library's card phase and step.
 
 ## 8. Development constraints
 

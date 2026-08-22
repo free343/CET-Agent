@@ -84,6 +84,12 @@ class Word(Base):
 
 class LearningState(Base):
     __tablename__ = "learning_states"
+    __table_args__ = (
+        CheckConstraint("fsrs_state BETWEEN 1 AND 3", name="ck_fsrs_state"),
+        CheckConstraint(
+            "fsrs_step IS NULL OR fsrs_step >= 0", name="ck_fsrs_step"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     word_id: Mapped[int] = mapped_column(
@@ -97,6 +103,10 @@ class LearningState(Base):
     correct_count: Mapped[int] = mapped_column(Integer, default=0)
     error_count: Mapped[int] = mapped_column(Integer, default=0)
     lapse_count: Mapped[int] = mapped_column(Integer, default=0)
+    fsrs_state: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    fsrs_step: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now, onupdate=utc_now)
 

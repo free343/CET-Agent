@@ -110,6 +110,8 @@ class ReviewService:
             state.stability = schedule.new_stability
             state.last_review_at = review_time
             state.next_review_at = schedule.next_review_at
+            state.fsrs_state = schedule.fsrs_state
+            state.fsrs_step = schedule.fsrs_step
             state.review_count += 1
             if is_correct:
                 state.correct_count += 1

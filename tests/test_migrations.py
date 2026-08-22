@@ -60,6 +60,45 @@ def test_unversioned_mvp_database_is_adopted_without_data_loss(tmp_path) -> None
         database.dispose()
 
 
+def test_version_one_database_adds_fsrs_state_without_data_loss(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 1)"
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE learning_states (
+                    id INTEGER PRIMARY KEY,
+                    review_count INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO learning_states (id, review_count) "
+                "VALUES (1, 0), (2, 3)"
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+        with database.engine.connect() as connection:
+            rows = connection.exec_driver_sql(
+                "SELECT id, review_count, fsrs_state, fsrs_step "
+                "FROM learning_states ORDER BY id"
+            ).all()
+        assert rows == [(1, 0, 1, 0), (2, 3, 2, None)]
+    finally:
+        database.dispose()
+
+
 def test_newer_database_version_is_rejected(tmp_path) -> None:
     database = make_database(tmp_path)
     try:

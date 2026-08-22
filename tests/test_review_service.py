@@ -38,6 +38,8 @@ def test_submit_review_updates_state_and_creates_log(database, word_id) -> None:
         assert state.correct_count == 1
         assert state.next_review_at == result.schedule.next_review_at
         assert state.stability == result.schedule.new_stability
+        assert state.fsrs_state == result.schedule.fsrs_state
+        assert state.fsrs_step == result.schedule.fsrs_step
 
 
 def test_again_records_error_and_lapse(database, word_id) -> None:
