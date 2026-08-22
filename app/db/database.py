@@ -10,7 +10,7 @@ from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models import Base
+from app.db.migrations import upgrade_schema
 
 
 class DatabaseBusyError(RuntimeError):
@@ -48,8 +48,19 @@ class Database:
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.close()
 
-    def create_tables(self) -> None:
-        Base.metadata.create_all(self.engine)
+    def upgrade_schema(self) -> int:
+        """Apply every pending database migration and return the version."""
+        try:
+            return upgrade_schema(self.engine)
+        except OperationalError as exc:
+            message = str(exc).lower()
+            if "locked" in message or "busy" in message:
+                raise DatabaseBusyError("本地学习数据库正忙，请稍后重试。") from exc
+            raise
+
+    def create_tables(self) -> int:
+        """Backward-compatible alias for callers that initialize a database."""
+        return self.upgrade_schema()
 
     def begin_serialized_write(self, db_session: Session) -> None:
         """Acquire SQLite's write reservation before reading mutable state.

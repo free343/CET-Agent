@@ -11,7 +11,7 @@ CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 stude
 ## 已实现的 MVP
 
 - PySide6 桌面端：学习概览、单词复习、易混词分析、AI 助手和设置；
-- SQLite + SQLAlchemy 2.x 本地数据层，首次启动自动建表并幂等导入示例词汇；
+- SQLite + SQLAlchemy 2.x 本地数据层，显式版本迁移、首次启动自动建表并幂等导入示例词汇；
 - FSRS-compatible 调度器，维护 Difficulty、Stability 与下一次复习时间；
 - 完整 ReviewLog：评分、正确性、耗时、题型、答案和调度前后状态；
 - 确定性复习队列、统计和主动提醒策略，支持 30 分钟 Snooze；
@@ -97,7 +97,7 @@ macOS/Linux 激活命令为 `source .venv/bin/activate`，复制配置可使用 
 python main.py
 ```
 
-第一次运行会自动创建 `data/cet_agent.db`、创建全部表、导入 `data/sample_words.csv`，并为每个词建立默认 `LearningState`。重复启动不会重复导入。
+第一次运行会自动创建 `data/cet_agent.db`，按顺序升级到当前 schema 版本、导入 `data/sample_words.csv`，并为每个词建立默认 `LearningState`。升级和导入均可重复执行；升级失败会回滚，数据库版本高于应用支持范围时会拒绝启动，避免旧程序误写新结构。
 
 复习快捷键：
 
@@ -167,6 +167,7 @@ python main.py --smoke-test
 ## 关键技术决策
 
 - SQLite 时间通过自定义 SQLAlchemy 类型统一存储为 UTC，并在读取时恢复时区；
+- 数据库使用单行 `schema_version` 和显式连续迁移注册表；SQLite 升级前获取写锁，并在同一事务中更新结构与版本；
 - 简化 FSRS-compatible 实现隔离在 Domain 层，未来可替换成熟 FSRS 库；
 - 共错采用 24 小时窗口内的一对一贪心匹配，避免单条错误重复放大；
 - Temporal score 对每次错误寻找另一词最近错误并计算 `exp(-Δt/τ)`；
@@ -179,7 +180,7 @@ python main.py --smoke-test
 ```text
 app/
 ├── ai/              # LLM、Embedding、Prompt、Pydantic schema
-├── db/              # SQLAlchemy models、repositories、seed
+├── db/              # SQLAlchemy models、repositories、migrations、seed
 ├── domain/          # FSRS、相似度、混淆图、聚类、提醒策略
 ├── infrastructure/  # 桌面通知适配器
 ├── services/        # 业务用例与事务边界

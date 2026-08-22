@@ -67,7 +67,8 @@ Local Ollama:
 
 ### Bootstrap and persistence
 
-- `app/bootstrap.py` configures logging, creates tables, imports seed words, and creates missing LearningState rows.
+- `app/bootstrap.py` configures logging, upgrades the database schema, imports seed words, and creates missing LearningState rows.
+- `app/db/migrations.py` owns the explicit sequential schema registry. A single-row `schema_version` table tracks the current version; upgrades take a SQLite write reservation, update schema plus version in one transaction, adopt pre-versioning MVP databases without data loss, and reject databases newer than the application.
 - `app/config.py` loads `.env`, resolves relative SQLite paths from the project root, and owns all model, graph, reminder, and logging configuration.
 - Unsafe graph/reminder configuration is rejected at startup: thresholds are bounded, candidate count stays within 1–100, relation weights must be finite/non-negative and sum to 1, and reminder windows/cooldowns must be valid.
 - `app/db/models.py` defines Word, LearningState, ReviewLog, ConfusionEdge, AIAnalysis, EmbeddingCache, and ReminderRuntimeState.
@@ -146,13 +147,14 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 58 passed in 1.35s | 2026-08-22 |
+| Full pytest suite | 62 passed in 1.03s | 2026-08-22 |
 | Ruff static check | all checks passed | 2026-08-22 |
-| Mypy application/scripts check | exit code 0 | 2026-08-22 |
+| Mypy application/scripts check | exit code 0; 50 source files | 2026-08-22 |
+| Schema migration matrix | 4 focused tests passed: fresh, pre-version adoption, idempotency/newer-version guard, transactional rollback | 2026-08-22 |
 | Deterministic randomized algorithm invariants | 6,000 checks passed | 2026-08-22 |
 | Concurrent review/AI/Embedding focused regression | 15 tests passed in five consecutive runs; no lost update or cache exception | 2026-08-22 |
-| Offscreen startup smoke | exit code 0; database initialized | 2026-08-22 |
-| SQLite integrity and foreign keys | `integrity_check=ok`; no foreign-key violations | 2026-08-22 |
+| Offscreen startup smoke | exit code 0; existing runtime database adopted as schema version 1 | 2026-08-22 |
+| SQLite integrity and foreign keys | schema version 1; `integrity_check=ok`; no foreign-key violations | 2026-08-22 |
 | Demo graph | 7 candidates, 5 edges, 3 clusters | 2026-08-22 |
 | Ollama chat through project provider | cold 29.490s; warm 1.246s; non-degraded Chinese response | 2026-08-22 |
 | Ollama embedding through cached provider | 2 vectors, dimension 768; cold 20.159s; cache rows 0→2→2 | 2026-08-22 |
@@ -181,7 +183,6 @@ python main.py
 ### P1: correctness and data evolution
 
 - The scheduler is simplified FSRS-compatible, not full official FSRS. Evaluate a licensed lightweight implementation or calibrate the existing formula with reference-vector tests.
-- There is no database migration mechanism. Add Alembic or a smaller explicit schema-version migration approach without breaking first startup or existing SQLite files.
 - The 13-word sample is only a demonstration set. Add a legally usable, validated CET-4/CET-6 data import workflow before real study use.
 
 ### P2: product completeness
@@ -195,7 +196,7 @@ python main.py
 ### P3: delivery engineering
 
 - No CI, formatter/static-analysis gate, dependency lockfile, release build, or Windows installer.
-- No migration-upgrade test matrix or performance baseline for 100 confusion candidates.
+- No performance baseline for 100 confusion candidates.
 - No full packaging test for writable data/log locations after installation.
 
 ## 7. Key design decisions
@@ -210,7 +211,7 @@ python main.py
 8. Structured LLM output: cluster analysis is schema-constrained, validated locally, retried once, and safely degraded.
 9. Reminder persistence: cooldown, snooze, and completion survive restart; completion is invalidated when new work becomes due.
 10. Deferred close: the main window does not destroy running QThreads.
-11. Current DB creation uses SQLAlchemy `create_all`; this is acceptable only for the MVP and is the reason migrations are P1.
+11. Explicit schema evolution: migration 1 uses SQLAlchemy metadata to create or adopt the original MVP schema; every later schema change must add the next consecutive migration. Structure changes and the stored version commit together, and an older app must reject a newer database.
 12. Direct Ollama transport: localhost model calls ignore OS/environment proxies, while the separately configured OpenAI-compatible provider retains normal proxy behavior.
 13. Cold-start tolerance: local Embedding uses a 60-second timeout because measured first load slightly exceeded 20 seconds.
 14. Injectable reminder clock: time-dependent state coordination accepts a clock dependency; tests must not depend on the wall-clock date.
