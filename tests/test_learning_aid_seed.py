@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
+from app.ai.learning_aid_validation import SourceEntry
 from app.db.learning_aid_seed import (
     LearningAidDataError,
     content_hash,
@@ -104,6 +105,33 @@ def test_malformed_file_is_rejected(tmp_path) -> None:
     bad.write_text("this is not json\n", encoding="utf-8")
     with pytest.raises(LearningAidDataError):
         load_learning_aid_records(bad)
+
+
+def test_strict_load_rejects_source_mismatch_before_database_write(tmp_path) -> None:
+    jsonl = tmp_path / "aids.jsonl"
+    _write_jsonl(
+        jsonl,
+        [
+            _record(
+                "adapt",
+                example="Students carefully adapt to new situations today.",
+            )
+        ],
+    )
+    source = SourceEntry(
+        word="adapt",
+        level="CET4",
+        meaning="来自 CSV 的真实释义",
+        example="",
+        source_kind="open",
+    )
+
+    with pytest.raises(LearningAidDataError, match="source_meaning"):
+        load_learning_aid_records(
+            jsonl,
+            ordered_sources=[source],
+            require_complete=True,
+        )
 
 
 def test_seed_matches_words_and_never_creates_new_ones(database, tmp_path) -> None:

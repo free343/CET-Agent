@@ -13,6 +13,7 @@ from app.db.models import WordLearningAid
 from app.services.review_service import ReviewService
 from app.services.wordbook_service import WordbookService
 from app.ui.review_page import ReviewPage
+from app.ui.widgets.review_card import ReviewCardWidget
 from app.ui.wordbook_page import WordbookPage
 
 
@@ -52,6 +53,12 @@ def _add_aid(database, word_id: int) -> None:
                 content_hash="abc",
             )
         )
+
+
+def test_review_card_separates_multiple_learning_aids_with_newlines() -> None:
+    assert ReviewCardWidget._format_learning_aids(
+        ("adapt to｜适应", "adapt from｜改编自")
+    ) == ("adapt to｜适应\nadapt from｜改编自")
 
 
 def test_review_page_renders_generated_aids(database, word_id) -> None:

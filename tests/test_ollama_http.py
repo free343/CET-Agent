@@ -77,6 +77,57 @@ def test_openai_chat_sets_output_token_budget(monkeypatch) -> None:
     assert captured["json"]["max_tokens"] == 2_048
 
 
+def test_openai_offline_json_generation_uses_separate_output_budget(
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_post(url, **kwargs):
+        captured.update(kwargs)
+        return FakeResponse(
+            {
+                "choices": [
+                    {"finish_reason": "stop", "message": {"content": '{"ok":true}'}}
+                ]
+            }
+        )
+
+    monkeypatch.setattr("app.ai.openai_compatible_provider.httpx.post", fake_post)
+    provider = OpenAICompatibleProvider(
+        "https://api.deepseek.com",
+        "deepseek-v4-flash",
+        max_output_tokens=8_192,
+        json_output=True,
+        disable_thinking=True,
+    )
+
+    assert provider.generate([{"role": "user", "content": "return json"}])
+    assert captured["json"]["max_tokens"] == 8_192
+    assert captured["json"]["response_format"] == {"type": "json_object"}
+    assert captured["json"]["thinking"] == {"type": "disabled"}
+
+
+def test_openai_rejects_output_truncated_by_token_limit(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.ai.openai_compatible_provider.httpx.post",
+        lambda *args, **kwargs: FakeResponse(
+            {
+                "choices": [
+                    {
+                        "finish_reason": "length",
+                        "message": {"content": '{"partial":'},
+                    }
+                ]
+            }
+        ),
+    )
+
+    with pytest.raises(LLMUnavailableError):
+        OpenAICompatibleProvider("https://api.deepseek.com", "model").generate(
+            [{"role": "user", "content": "return json"}]
+        )
+
+
 def test_ollama_embedding_normalizes_non_object_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.ai.embedding_provider.httpx.post",

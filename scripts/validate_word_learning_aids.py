@@ -1,49 +1,31 @@
-"""Independent, offline, repeatable strict validator for word learning aids.
-
-This script never touches the database or the network. It cross-checks the
-formal JSONL against the two source CSVs and enforces the full artifact
-contract. Exit code 0 means every requested check passed; any error exits
-non-zero.
-"""
+"""Independent, offline, repeatable validator for word learning aids."""
 
 from __future__ import annotations
 
 import argparse
 import csv
 import json
-import re
 import sys
-from collections import Counter
-from dataclasses import dataclass, field
 from pathlib import Path
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.ai.schemas import WordLearningAidRecord
+from app.ai.learning_aid_validation import (
+    SourceEntry,
+    ValidationReport,
+    validate_provenance,
+    validate_records,
+)
+from app.ai.learning_aid_validation import validate_record as _validate_record
+
+validate_record = _validate_record
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CURATED_CSV = PROJECT_ROOT / "data" / "sample_words.csv"
 OPEN_CSV = PROJECT_ROOT / "data" / "cet_vocabulary_open.csv"
 DEFAULT_JSONL = PROJECT_ROOT / "data" / "word_learning_aids.jsonl"
-
-_HEADWORD_PATTERN = re.compile(r"[a-z]+(?:[-'][a-z]+)*")
-_INFLECTION_SUFFIXES = ("s", "es", "ed", "ing", "er", "est")
-
-
-@dataclass(frozen=True, slots=True)
-class SourceEntry:
-    word: str
-    level: str
-    meaning: str
-    example: str
-    source_kind: str
-
-
-@dataclass(slots=True)
-class ValidationReport:
-    errors: list[str] = field(default_factory=list)
-    stats: dict[str, int] = field(default_factory=dict)
+DEFAULT_PROVENANCE = PROJECT_ROOT / "data" / "word_learning_aids.provenance.json"
 
 
 def _read_csv(path: Path, source_kind: str) -> list[SourceEntry]:
@@ -79,157 +61,17 @@ def read_records(jsonl_path: Path) -> list[dict[str, object]]:
             if not line.strip():
                 raise ValueError(f"{jsonl_path.name}:{line_number} is an empty line")
             try:
-                records.append(json.loads(line))
+                payload = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ValueError(
                     f"{jsonl_path.name}:{line_number} is not valid JSON"
                 ) from exc
+            if not isinstance(payload, dict):
+                raise TypeError(
+                    f"{jsonl_path.name}:{line_number} must be a JSON object"
+                )
+            records.append(payload)
     return records
-
-
-def _normalize_whitespace(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _contains_standalone_word(example: str, word: str) -> bool:
-    return (
-        re.search(
-            r"(?<![A-Za-z])" + re.escape(word) + r"(?![A-Za-z])",
-            example,
-            re.IGNORECASE,
-        )
-        is not None
-    )
-
-
-def _is_obvious_inflection(base: str, candidate: str) -> bool:
-    base_cf = base.casefold()
-    candidate_cf = candidate.casefold()
-    if candidate_cf == base_cf:
-        return True
-    return any(candidate_cf == base_cf + suffix for suffix in _INFLECTION_SUFFIXES)
-
-
-def validate_record(
-    record: WordLearningAidRecord,
-    by_word: dict[str, SourceEntry],
-) -> list[str]:
-    """Return every contract violation for one assembled record."""
-    errors: list[str] = []
-    word = record.word
-    source = by_word.get(word)
-    if source is None:
-        return [f"{word}: unknown word not present in the source CSVs"]
-
-    if record.level != source.level:
-        errors.append(f"{word}: level {record.level} != source {source.level}")
-    if record.source_kind != source.source_kind:
-        errors.append(
-            f"{word}: source_kind {record.source_kind} != {source.source_kind}"
-        )
-    if _normalize_whitespace(record.source_meaning) != _normalize_whitespace(
-        source.meaning
-    ):
-        errors.append(f"{word}: source_meaning differs from the CSV meaning")
-
-    if source.source_kind == "curated":
-        if record.example_origin != "curated":
-            errors.append(f"{word}: curated example_origin must be 'curated'")
-        if record.example != source.example:
-            errors.append(f"{word}: curated example differs from the CSV example")
-    else:
-        if record.example_origin != "ai_generated":
-            errors.append(f"{word}: open example_origin must be 'ai_generated'")
-        if not record.example.strip():
-            errors.append(f"{word}: open example must not be empty")
-
-    if not _contains_standalone_word(record.example, word):
-        errors.append(f"{word}: example does not contain the standalone headword")
-    if "\n" in record.example or "\r" in record.example:
-        errors.append(f"{word}: example contains a newline")
-    if record.example and record.example.rstrip()[-1] not in ".?!":
-        errors.append(f"{word}: example must end with . ? or !")
-
-    seen_collocations: set[str] = set()
-    for item in record.collocations:
-        key = _normalize_whitespace(item.phrase).casefold()
-        if not key:
-            errors.append(f"{word}: collocation phrase is empty")
-        elif key in seen_collocations:
-            errors.append(f"{word}: duplicate collocation {item.phrase!r}")
-        seen_collocations.add(key)
-
-    seen_family: set[str] = set()
-    for item in record.word_family:
-        member = item.word.casefold()
-        if member == word.casefold():
-            errors.append(f"{word}: word_family contains the target word itself")
-        if _HEADWORD_PATTERN.fullmatch(member) is None:
-            errors.append(f"{word}: word_family headword {item.word!r} is invalid")
-        if member in seen_family:
-            errors.append(f"{word}: duplicate word_family entry {item.word!r}")
-        seen_family.add(member)
-        if _is_obvious_inflection(word, item.word):
-            errors.append(f"{word}: word_family {item.word!r} looks like an inflection")
-
-    if record.generator.model.casefold() == "unknown":
-        errors.append(f"{word}: generator.model must not be 'unknown'")
-
-    return errors
-
-
-def _compute_stats(records: list[WordLearningAidRecord]) -> dict[str, int]:
-    return {
-        "total": len(records),
-        "cet4": sum(1 for r in records if r.level == "CET4"),
-        "cet6": sum(1 for r in records if r.level == "CET6"),
-        "curated": sum(1 for r in records if r.source_kind == "curated"),
-        "open": sum(1 for r in records if r.source_kind == "open"),
-        "ai_generated_examples": sum(
-            1 for r in records if r.example_origin == "ai_generated"
-        ),
-        "curated_examples": sum(1 for r in records if r.example_origin == "curated"),
-        "empty_word_family": sum(1 for r in records if not r.word_family),
-    }
-
-
-def validate_records(
-    records: list[dict[str, object]],
-    ordered_sources: list[SourceEntry],
-    by_word: dict[str, SourceEntry],
-    *,
-    require_complete: bool,
-) -> ValidationReport:
-    """Validate parsed records against the source CSVs and the contract."""
-    errors: list[str] = []
-    parsed: list[WordLearningAidRecord] = []
-    for index, raw in enumerate(records, start=1):
-        try:
-            parsed.append(WordLearningAidRecord.model_validate(raw))
-        except ValueError as exc:
-            errors.append(f"line {index}: invalid record: {exc}")
-
-    for record in parsed:
-        errors.extend(validate_record(record, by_word))
-
-    words = [record.word for record in parsed]
-    duplicates = [word for word, count in Counter(words).items() if count > 1]
-    if duplicates:
-        errors.append(f"duplicate words in JSONL: {sorted(duplicates)}")
-
-    if require_complete:
-        expected = [entry.word for entry in ordered_sources]
-        actual = words
-        if set(expected) != set(actual):
-            missing = sorted(set(expected) - set(actual))
-            extra = sorted(set(actual) - set(expected))
-            errors.append(
-                f"word set mismatch: missing={len(missing)} extra={len(extra)}"
-            )
-        elif actual != expected:
-            errors.append("word order does not match the source CSV order")
-
-    return ValidationReport(errors=errors, stats=_compute_stats(parsed))
 
 
 def _print_report(report: ValidationReport) -> None:
@@ -254,19 +96,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--require-complete",
         action="store_true",
-        help="require the exact full 4,611-word source set in source order",
+        help="require the exact full 4,611-word source set and valid provenance",
     )
     parser.add_argument("--jsonl", default=str(DEFAULT_JSONL))
+    parser.add_argument(
+        "--provenance",
+        default=None,
+        help="provenance path; defaults beside --jsonl when completeness is required",
+    )
     args = parser.parse_args(argv)
 
-    jsonl_path = Path(args.jsonl)
+    jsonl_path = Path(args.jsonl).resolve()
     if not jsonl_path.exists():
         print(f"ERROR: {jsonl_path} not found", file=sys.stderr)
         return 2
     ordered, by_word = load_sources()
     try:
         records = read_records(jsonl_path)
-    except (ValueError, FileNotFoundError) as exc:
+    except (TypeError, ValueError, FileNotFoundError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
 
@@ -276,6 +123,20 @@ def main(argv: list[str] | None = None) -> int:
         by_word,
         require_complete=args.require_complete,
     )
+    if args.require_complete:
+        provenance_path = (
+            Path(args.provenance).resolve()
+            if args.provenance
+            else jsonl_path.with_name(DEFAULT_PROVENANCE.name)
+        )
+        report.errors.extend(
+            validate_provenance(
+                provenance_path,
+                jsonl_path,
+                report,
+                {CURATED_CSV.name: CURATED_CSV, OPEN_CSV.name: OPEN_CSV},
+            )
+        )
     _print_report(report)
     for error in report.errors[:50]:
         print(f"  - {error}")

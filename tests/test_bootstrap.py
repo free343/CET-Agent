@@ -129,6 +129,7 @@ def test_bootstrap_disposes_database_when_learning_aids_are_malformed(
     from app.db.learning_aid_seed import LearningAidDataError
 
     disposed = {"done": False}
+    captured: dict[str, object] = {}
 
     class TrackingDatabase:
         def __init__(self, _url) -> None:
@@ -146,9 +147,15 @@ def test_bootstrap_disposes_database_when_learning_aids_are_malformed(
             disposed["done"] = True
 
     monkeypatch.setattr("app.bootstrap.Database", lambda _url: TrackingDatabase(_url))
+
+    def reject_aids(path, **kwargs):
+        captured["path"] = path
+        captured.update(kwargs)
+        raise LearningAidDataError("malformed aids")
+
     monkeypatch.setattr(
         "app.bootstrap.load_learning_aid_records",
-        lambda _path: (_ for _ in ()).throw(LearningAidDataError("malformed aids")),
+        reject_aids,
     )
 
     with pytest.raises(LearningAidDataError):
@@ -157,3 +164,6 @@ def test_bootstrap_disposes_database_when_learning_aids_are_malformed(
         )
 
     assert disposed["done"] is True
+    assert captured["require_complete"] is True
+    assert len(captured["ordered_sources"]) == 4_611
+    assert captured["provenance_path"].name == "word_learning_aids.provenance.json"

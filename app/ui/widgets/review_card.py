@@ -133,7 +133,7 @@ class ReviewCardWidget(QFrame):
         cleaned = [item.strip()[:120] for item in items[:6] if item.strip()]
         if not cleaned:
             return "待 AI 逐词生成并校验"
-        return "  ·  ".join(cleaned)
+        return "\n".join(cleaned)
 
     @staticmethod
     def _centered_label(text: str, object_name: str = "") -> QLabel:

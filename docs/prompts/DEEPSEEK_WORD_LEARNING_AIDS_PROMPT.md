@@ -88,8 +88,9 @@ D:\work\english\data\cet_vocabulary_open.csv
    - 最终文件只能在全部校验通过后原子替换 data/word_learning_aids.jsonl。
 
 4. scripts/generate_word_learning_aids.py
-   - 批量生成入口，至少支持：--batch-size、--resume、--max-items、--dry-run、--model、--output。
+   - 批量生成入口，至少支持：--batch-size、--resume、--max-items、--dry-run、--model、--output、--max-output-tokens。
    - 默认 batch-size=20；每批只向模型提供该批词条。
+   - 默认使用当前 DeepSeek 非思考模型 `deepseek-v4-flash`、JSON Output 和离线专用 8,192-token 输出预算；不得提高应用内普通聊天的 2,048-token 上限。`finish_reason=length` 必须作为截断失败重试，不能解析或保存半截 JSON。
    - 支持限流、超时、指数退避、结构失败重试、Ctrl+C 后安全恢复。
    - 断点按 word 键控，已通过校验的词不得重复请求，除非显式 --force-word。
 
@@ -163,8 +164,8 @@ data/word_learning_aids.jsonl 的每一行必须严格符合以下逻辑结构�
 
 <content_rules>
 一、英文例句：
-1. 每条只写一个完整英文句子，建议 6—18 个英文单词，最多 160 个字符。
-2. 必须以独立词形、大小写不敏感地包含目标 word 的精确拼写，便于应用生成填空题。
+1. open 词条每条只写一个完整英文句子，必须为 6—18 个英文单词，最多 160 个字符；curated 词条始终逐字符保留已有例句，即使其词数不在这个范围内也不得改写。
+2. 必须以独立词形、大小写不敏感地包含目标 word 的精确拼写或常规语法屈折形式，便于应用生成填空题；不得只以更长英文词的子串形式出现。
 3. 采用目标词在 source_meaning 中最常用、最适合 CET 学习的含义。
 4. 难度控制在 CET4/CET6 学习者可理解范围，语法自然，语境具体。
 5. 不使用需要实时知识的事实、争议性政治判断、危险行为、歧视内容或不必要的专有名词。
@@ -176,7 +177,7 @@ data/word_learning_aids.jsonl 的每一行必须严格符合以下逻辑结构�
 1. 每词生成 2—4 个常见且与来源义相关的搭配。
 2. phrase 最多 80 个字符，meaning 最多 80 个字符。
 3. 搭配必须包含目标词，或包含其在搭配中语法必需的规范词形。
-4. 不把完整例句、随意词组、同义词列表或中文释义本身当作搭配。
+4. 每个搭配必须包含目标词精确词形或常规语法屈折形式；不把完整例句、随意词组、同义词列表或中文释义本身当作搭配。
 5. 去重时忽略大小写和多余空白。
 
 三、同族 / 派生词：
@@ -251,7 +252,7 @@ data/word_learning_aids.jsonl 的每一行必须严格符合以下逻辑结构�
 4. curated 的 example_origin 全部为 curated，且 example 与 sample_words.csv 完全一致。
 5. level、source_meaning 与对应 CSV 一致。
 6. 每个例句包含目标 word 的精确独立词形；英文句号/问号/感叹号结尾；无换行。
-7. collocations 数量 2—4，字段非空且去重。
+7. collocations 数量 2—4，字段非空且去重，并且每项包含目标词精确词形或常规语法屈折形式。
 8. word_family 数量 0—4；字段有界；没有目标词本身、重复项和明显屈折变化。
 9. 所有枚举值、长度、额外字段、JSON 类型、UTF-8 和单行格式符合契约。
 10. generator.model 是实际模型名，prompt_version 全部为 word-learning-aids-v1。

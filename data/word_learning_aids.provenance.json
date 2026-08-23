@@ -1,0 +1,30 @@
+{
+  "generator": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "prompt_version": "word-learning-aids-v1"
+  },
+  "source_files": {
+    "sample_words.csv": "d48d9b2beafba51b07515727103974e3b5efcb49902d8e7045b44b621659fa51",
+    "cet_vocabulary_open.csv": "1afc9925361b58c398ab35ef1f10fc2d4b80b4f3c30ee5be542fc9da2bb9a16f"
+  },
+  "artifact": {
+    "path": "word_learning_aids.jsonl",
+    "sha256": "97d1a2d4c4de6fb28c36ebbc2eeed6ebf1ee1eab8bc6d9441abba14433ef616f"
+  },
+  "stats": {
+    "total": 4611,
+    "cet4": 3329,
+    "cet6": 1282,
+    "curated": 13,
+    "open": 4598,
+    "ai_generated_examples": 4598,
+    "curated_examples": 13,
+    "empty_word_family": 740
+  },
+  "validation": {
+    "result": "passed",
+    "errors": 0
+  },
+  "completed_at": "2026-08-23T05:37:15.559980+00:00"
+}

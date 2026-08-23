@@ -16,10 +16,15 @@ from app.ai.schemas import (
     WordLearningAidRecord,
 )
 from scripts.generate_word_learning_aids import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    DEFAULT_MODEL,
     PromotionError,
+    _make_response_logger,
     align_batch,
     assemble_record,
+    create_generation_provider,
     generate,
+    load_generation_environment,
     parse_batch,
     parse_model_output,
     promote,
@@ -39,6 +44,51 @@ class FakeProvider:
         return self.handler(messages)
 
 
+def test_generation_environment_loads_project_dotenv_without_overriding_process_env(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "DEEPSEEK_API_KEY=dotenv-secret\nDEEPSEEK_MODEL=dotenv-model\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPSEEK_MODEL", "process-model")
+
+    load_generation_environment(env_file)
+
+    assert __import__("os").environ["DEEPSEEK_API_KEY"] == "dotenv-secret"
+    assert __import__("os").environ["DEEPSEEK_MODEL"] == "process-model"
+
+
+def test_generation_provider_uses_current_model_json_mode_and_large_budget() -> None:
+    provider = create_generation_provider(
+        "https://api.deepseek.com",
+        DEFAULT_MODEL,
+        "secret",
+        DEFAULT_MAX_OUTPUT_TOKENS,
+    )
+
+    assert DEFAULT_MODEL == "deepseek-v4-flash"
+    assert provider.json_output is True
+    assert provider.disable_thinking is True
+    assert provider.max_output_tokens == 8_192
+
+
+def test_response_logger_creates_checkpoint_parent_before_first_response(
+    tmp_path,
+) -> None:
+    response_file = tmp_path / "nested" / "responses.jsonl"
+    logger = _make_response_logger(response_file)
+    assert logger is not None
+
+    logger('{"items": []}')
+
+    assert response_file.exists()
+    assert '"raw": "{\\"items\\": []}"' in response_file.read_text(encoding="utf-8")
+
+
 def _input_items(messages):
     for message in messages:
         content = message.get("content", "")
@@ -53,7 +103,9 @@ def _input_items(messages):
 def _valid_generation(item) -> dict:
     word = item["word"]
     existing = item.get("existing_example", "")
-    example = existing if existing else f"Students learn {word} in class."
+    example = (
+        existing if existing else f"Students carefully learn {word} in class today."
+    )
     return {
         "word": word,
         "example": example,
@@ -92,7 +144,11 @@ def _make_sources(words) -> tuple[list[SourceEntry], dict[str, SourceEntry]]:
 
 def _record_for(entry: SourceEntry, model: str = "deepseek-chat") -> dict:
     curated = entry.source_kind == "curated"
-    example = entry.example if curated else f"Students learn {entry.word} in class."
+    example = (
+        entry.example
+        if curated
+        else f"Students carefully learn {entry.word} in class today."
+    )
     return {
         "schema_version": 1,
         "word": entry.word,
@@ -170,7 +226,7 @@ def test_assemble_record_uses_generated_example_for_open() -> None:
     open_entry = by_word["beta"]
     generation = parse_batch({"items": [_valid_generation({"word": "beta"})]})[0]
     record = assemble_record(open_entry, generation, "deepseek-chat")
-    assert record["example"] == "Students learn beta in class."
+    assert record["example"] == "Students carefully learn beta in class today."
     assert record["example_origin"] == "ai_generated"
 
 
@@ -276,6 +332,34 @@ def test_generate_resumes_from_checkpoint_without_recalling(tmp_path) -> None:
     assert summary.completed == 2
     # Only beta needed a request, so exactly one provider call was made.
     assert provider.calls == 1
+
+
+def test_generate_rejects_checkpoint_from_a_different_model(tmp_path) -> None:
+    ordered, by_word = _make_sources(["alpha", "beta"])
+    checkpoint = tmp_path / "partial.jsonl"
+    checkpoint.write_text(
+        json.dumps(
+            _record_for(by_word["alpha"], model="different-model"),
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    provider = FakeProvider(_valid_batch_handler)
+
+    with pytest.raises(ValueError, match="checkpoint.*model"):
+        generate(
+            provider,
+            ordered,
+            by_word,
+            checkpoint_file=checkpoint,
+            failures_file=tmp_path / "failures.jsonl",
+            model="deepseek-v4-flash",
+            rate_limit_seconds=0,
+            sleep_fn=lambda _s: None,
+        )
+
+    assert provider.calls == 0
 
 
 def test_generate_force_word_requeries_validated_word(tmp_path) -> None:

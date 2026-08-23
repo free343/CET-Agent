@@ -11,12 +11,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.learning_aid_validation import (
+    SourceEntry,
+    validate_provenance,
+    validate_records,
+)
 from app.ai.schemas import WordLearningAidRecord
 from app.db.models import Word, WordLearningAid
 
@@ -60,7 +65,14 @@ def content_hash(record: WordLearningAidRecord) -> str:
     return hashlib.sha256(_canonical_content(record).encode("utf-8")).hexdigest()
 
 
-def load_learning_aid_records(jsonl_path: Path) -> list[WordLearningAidRecord]:
+def load_learning_aid_records(
+    jsonl_path: Path,
+    *,
+    ordered_sources: Sequence[SourceEntry] | None = None,
+    require_complete: bool = False,
+    provenance_path: Path | None = None,
+    source_files: Mapping[str, Path] | None = None,
+) -> list[WordLearningAidRecord]:
     """Read and strictly validate the whole artifact before any write.
 
     A missing file is a normal, non-fatal state (the application continues
@@ -69,7 +81,9 @@ def load_learning_aid_records(jsonl_path: Path) -> list[WordLearningAidRecord]:
     """
     if not jsonl_path.exists():
         return []
-    records: list[WordLearningAidRecord] = []
+    if require_complete and ordered_sources is None:
+        raise ValueError("ordered_sources are required for complete validation")
+    raw_records: list[dict[str, object]] = []
     with jsonl_path.open("r", encoding="utf-8", newline="") as source:
         for line_number, raw in enumerate(source, start=1):
             line = raw.rstrip("\r\n")
@@ -78,18 +92,50 @@ def load_learning_aid_records(jsonl_path: Path) -> list[WordLearningAidRecord]:
                     f"{jsonl_path.name}:{line_number} is an empty line"
                 )
             try:
-                payload = json.loads(line)
+                parsed = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise LearningAidDataError(
                     f"{jsonl_path.name}:{line_number} is not valid JSON"
                 ) from exc
-            try:
-                records.append(WordLearningAidRecord.model_validate(payload))
-            except Exception as exc:
+            if not isinstance(parsed, dict):
                 raise LearningAidDataError(
-                    f"{jsonl_path.name}:{line_number} violates the record "
-                    f"contract: {exc}"
-                ) from exc
+                    f"{jsonl_path.name}:{line_number} must be a JSON object"
+                )
+            raw_records.append(parsed)
+
+    if ordered_sources is not None:
+        by_word = {entry.word: entry for entry in ordered_sources}
+        report = validate_records(
+            raw_records,
+            ordered_sources,
+            by_word,
+            require_complete=require_complete,
+        )
+        if provenance_path is not None:
+            if source_files is None:
+                raise ValueError("source_files are required for provenance validation")
+            report.errors.extend(
+                validate_provenance(
+                    provenance_path,
+                    jsonl_path,
+                    report,
+                    source_files,
+                )
+            )
+        if report.errors:
+            details = "; ".join(report.errors[:20])
+            raise LearningAidDataError(
+                f"{jsonl_path.name} failed validated import: {details}"
+            )
+
+    records: list[WordLearningAidRecord] = []
+    for line_number, payload in enumerate(raw_records, start=1):
+        try:
+            records.append(WordLearningAidRecord.model_validate(payload))
+        except Exception as exc:
+            raise LearningAidDataError(
+                f"{jsonl_path.name}:{line_number} violates the record contract: {exc}"
+            ) from exc
     return records
 
 

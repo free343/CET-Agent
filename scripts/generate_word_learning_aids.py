@@ -27,9 +27,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.ai.learning_aid_validation import sanitize_generation
 from app.ai.llm_provider import LLMUnavailableError
 from app.ai.openai_compatible_provider import OpenAICompatibleProvider
 from app.ai.prompts import word_learning_aids_messages
@@ -48,8 +51,10 @@ from scripts.validate_word_learning_aids import (
     validate_records,
 )
 
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
+DEFAULT_MAX_OUTPUT_TOKENS = 8_192
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CHECKPOINT_DIR = Path("build") / "word_learning_aids"
 DEFAULT_OUTPUT = Path("data") / "word_learning_aids.jsonl"
 DEFAULT_PROVENANCE = Path("data") / "word_learning_aids.provenance.json"
@@ -63,6 +68,38 @@ class BatchGenerationError(RuntimeError):
 
 class PromotionError(RuntimeError):
     """Raised when the artifact must not be promoted to the formal output."""
+
+
+def load_generation_environment(env_file: Path = PROJECT_ROOT / ".env") -> None:
+    """Load generator credentials without overriding explicit process values."""
+    load_dotenv(env_file, override=False)
+
+
+def create_generation_provider(
+    base_url: str,
+    model: str,
+    api_key: str,
+    max_output_tokens: int,
+) -> OpenAICompatibleProvider:
+    """Create the offline-only JSON Provider without changing chat budgets."""
+    return OpenAICompatibleProvider(
+        base_url,
+        model,
+        api_key,
+        timeout_seconds=120.0,
+        max_output_tokens=max_output_tokens,
+        json_output=True,
+        disable_thinking=True,
+    )
+
+
+def _bounded_output_tokens(raw: str) -> int:
+    value = int(raw)
+    if not 1_024 <= value <= 32_768:
+        raise argparse.ArgumentTypeError(
+            "max output tokens must be between 1024 and 32768"
+        )
+    return value
 
 
 @dataclass(slots=True)
@@ -181,12 +218,17 @@ def _request(
     max_retries: int,
     sleep_fn: Callable[[float], None],
     on_raw_response: Callable[[str], None] | None,
+    retry_feedback: str | None = None,
 ) -> tuple[list[WordLearningAidGeneration], int]:
     """Request one batch with retries; return (aligned generations, retries)."""
     payload_items = batch_payload(sources)
     last_error: Exception | None = None
     for attempt in range(max_retries + 1):
-        messages = word_learning_aids_messages(payload_items, retry=attempt > 0)
+        messages = word_learning_aids_messages(
+            payload_items,
+            retry=attempt > 0 or bool(retry_feedback),
+            retry_feedback=retry_feedback,
+        )
         try:
             text = provider.generate(messages)  # type: ignore[attr-defined]
             if on_raw_response is not None:
@@ -211,10 +253,17 @@ def _request_single(
     max_retries: int,
     sleep_fn: Callable[[float], None],
     on_raw_response: Callable[[str], None] | None,
+    retry_feedback: str | None = None,
 ) -> tuple[WordLearningAidGeneration | None, int]:
     try:
         generations, retries = _request(
-            provider, [source], model, max_retries, sleep_fn, on_raw_response
+            provider,
+            [source],
+            model,
+            max_retries,
+            sleep_fn,
+            on_raw_response,
+            retry_feedback,
         )
         return generations[0], retries
     except BatchGenerationError:
@@ -229,18 +278,32 @@ def _isolate_word(
     max_retries: int,
     sleep_fn: Callable[[float], None],
     on_raw_response: Callable[[str], None] | None,
+    initial_feedback: list[str] | None = None,
 ) -> tuple[dict[str, object] | None, int, str]:
     """Attempt a single-word request; return (record, retries, failure_reason)."""
-    generation, retries = _request_single(
-        provider, source, model, max_retries, sleep_fn, on_raw_response
-    )
-    if generation is None:
-        return None, retries, "single-word generation failed"
-    record = assemble_record(source, generation, model)
-    errors = validate_record_dict(record, by_word)
-    if errors:
-        return None, retries, "; ".join(errors)
-    return record, retries, ""
+    total_retries = 0
+    feedback = "; ".join(initial_feedback or ())
+    for validation_attempt in range(max_retries + 1):
+        generation, retries = _request_single(
+            provider,
+            source,
+            model,
+            max_retries,
+            sleep_fn,
+            on_raw_response,
+            feedback or None,
+        )
+        total_retries += retries
+        if generation is None:
+            return None, total_retries, "single-word generation failed"
+        record = assemble_record(source, sanitize_generation(generation), model)
+        errors = validate_record_dict(record, by_word)
+        if not errors:
+            return record, total_retries, ""
+        feedback = "; ".join(errors)
+        if validation_attempt < max_retries:
+            sleep_fn(_backoff_seconds(validation_attempt))
+    return None, total_retries, feedback
 
 
 def _generate_batch(
@@ -273,13 +336,20 @@ def _generate_batch(
         return records, failures, total_retries
 
     for source, generation in zip(batch, generations):
-        record = assemble_record(source, generation, model)
+        record = assemble_record(source, sanitize_generation(generation), model)
         errors = validate_record_dict(record, by_word)
         if not errors:
             records[source.word] = record
             continue
         isolated, retries, reason = _isolate_word(
-            provider, source, by_word, model, max_retries, sleep_fn, on_raw_response
+            provider,
+            source,
+            by_word,
+            model,
+            max_retries,
+            sleep_fn,
+            on_raw_response,
+            errors,
         )
         total_retries += retries
         if isolated is None:
@@ -300,6 +370,33 @@ def load_checkpoint(checkpoint_file: Path) -> dict[str, dict[str, object]]:
                 continue
             record = json.loads(line)
             records[str(record["word"])] = record
+    return records
+
+
+def load_validated_checkpoint(
+    checkpoint_file: Path,
+    by_word: dict[str, SourceEntry],
+    model: str,
+) -> dict[str, dict[str, object]]:
+    """Reject corrupt, stale-source, or mixed-model checkpoint records."""
+    records = load_checkpoint(checkpoint_file)
+    errors: list[str] = []
+    for key, raw in records.items():
+        if raw.get("word") != key:
+            errors.append(f"{key}: checkpoint key does not match record word")
+            continue
+        errors.extend(validate_record_dict(raw, by_word))
+        try:
+            parsed = WordLearningAidRecord.model_validate(raw)
+        except ValueError:
+            continue
+        if parsed.generator.model != model:
+            errors.append(
+                f"{key}: checkpoint model {parsed.generator.model!r} does not "
+                f"match requested model {model!r}"
+            )
+    if errors:
+        raise ValueError("checkpoint validation failed: " + "; ".join(errors[:20]))
     return records
 
 
@@ -352,7 +449,7 @@ def generate(
     on_raw_response: Callable[[str], None] | None = None,
     on_progress: Callable[[int, int, int, int], None] | None = None,
 ) -> GenerationSummary:
-    records = load_checkpoint(checkpoint_file)
+    records = load_validated_checkpoint(checkpoint_file, by_word, model)
     failures: dict[str, str] = {}
     force = {word.strip().lower() for word in (force_words or ())}
     pending = [
@@ -504,6 +601,10 @@ def promote(
 def _make_response_logger(responses_file: Path | None) -> Callable[[str], None] | None:
     if responses_file is None:
         return None
+    try:
+        responses_file.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
 
     def log(text: str) -> None:
         try:
@@ -547,10 +648,16 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--force-word", action="append", default=None)
     parser.add_argument("--rate-limit", type=float, default=1.0)
     parser.add_argument("--max-retries", type=int, default=2)
+    parser.add_argument(
+        "--max-output-tokens",
+        type=_bounded_output_tokens,
+        default=DEFAULT_MAX_OUTPUT_TOKENS,
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_generation_environment()
     args = build_argument_parser().parse_args(argv)
     model = args.model or os.environ.get("DEEPSEEK_MODEL", DEFAULT_MODEL)
     base_url = args.base_url or os.environ.get("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL)
@@ -569,7 +676,7 @@ def main(argv: list[str] | None = None) -> int:
     ]
 
     if args.dry_run:
-        records = load_checkpoint(checkpoint_file)
+        records = load_validated_checkpoint(checkpoint_file, by_word, model)
         force = {word.lower() for word in force_words}
         pending = [
             entry
@@ -592,7 +699,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    provider = OpenAICompatibleProvider(base_url, model, api_key, timeout_seconds=120.0)
+    provider = create_generation_provider(
+        base_url,
+        model,
+        api_key,
+        args.max_output_tokens,
+    )
     on_raw_response = _make_response_logger(responses_file)
     summary = generate(
         provider,

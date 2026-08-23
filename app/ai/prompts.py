@@ -138,7 +138,7 @@ Rules you must always follow:
 - Only include a word_family entry that is a real morphological base or derivative of the target word. Never include mere synonyms, antonyms, or words that are only semantically related.
 - Never include regular plurals, third-person singular, past/continuous forms, comparatives, or superlatives as word_family entries.
 - If a word has no reliable word family, return an empty array for word_family. Quality over quantity.
-- Collocations must be common fixed phrases that contain the target word, not full example sentences or synonym lists.
+- Collocations must be common fixed phrases that contain the target word or a regular grammatical inflection, not full example sentences or synonym lists.
 - Do not write dictionary-style definitions and do not use "X means ..." as an example sentence.
 - Return exactly one JSON object only. No Markdown, no code fences, no explanations.
 """
@@ -148,6 +148,7 @@ def word_learning_aids_messages(
     items: list[dict[str, str]],
     *,
     retry: bool = False,
+    retry_feedback: str | None = None,
 ) -> list[Message]:
     """Build the batch prompt for word learning-aid generation.
 
@@ -159,12 +160,14 @@ def word_learning_aids_messages(
     instruction = (
         "为下面的每个单词生成学习资料。严格只返回一个符合给定 JSON Schema 的 JSON 对象。\n\n"
         "对每个词：\n"
-        "1. example：一个完整英文例句（6—18 个英文单词，最多 160 字符）。"
-        "必须以独立词形、大小写不敏感地包含该词头的精确拼写，"
+        "1. example：source_kind=open 时生成一个完整英文例句（必须 6—18 个英文单词，"
+        "最多 160 字符）；必须以独立词形、大小写不敏感地包含该词头或常规语法屈折形式，"
         "使用 meaning 中最常用、最适合 CET 学习的一个含义，语法自然、语境具体。"
-        "若 existing_example 非空（精选词），example 必须逐字符等于 existing_example，不得改写。\n"
+        "若 existing_example 非空（精选词），example 必须逐字符等于 existing_example，"
+        "不得为满足词数而改写。\n"
         "2. example_translation：对应整句的自然中文翻译，不逐词直译、不额外讲解。\n"
-        "3. collocations：2—4 个常见固定搭配，与来源义相关，"
+        "3. collocations：2—4 个常见固定搭配，与来源义相关；每个 phrase 必须包含"
+        "目标词精确词形或常规语法屈折形式，"
         "每个含 phrase（英文，最多 80 字符）和 meaning（简明中文，最多 80 字符）。\n"
         "4. word_family：0—4 个真实同族或派生词，宁缺毋滥；"
         "每个含 word（单个英文词头）、part_of_speech（n./v./adj./adv. 等）、"
@@ -185,6 +188,20 @@ def word_learning_aids_messages(
                     "上一次输出未通过校验（可能缺词、多词、重复词、字段非法、"
                     "例句未包含目标词独立词形、或词族含屈折/伪派生）。"
                     "请重新输出完整、合法、与输入一一对应的 JSON 对象。"
+                ),
+            }
+        )
+    if retry_feedback:
+        # Feed only bounded, deterministic validator feedback back to the model.
+        # This lets a retry repair the concrete contract violation instead of
+        # repeating the same structurally plausible but unusable answer.
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "请优先修复以下本地校验错误，并重新输出完整 JSON；"
+                    "不要解释错误，也不要省略任何输入词。\n"
+                    f"VALIDATION_ERRORS:\n{retry_feedback[:2_000]}"
                 ),
             }
         )

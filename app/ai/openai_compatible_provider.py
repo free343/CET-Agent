@@ -25,11 +25,20 @@ class OpenAICompatibleProvider(LLMProvider):
         model: str,
         api_key: str | None = None,
         timeout_seconds: float = 60.0,
+        *,
+        max_output_tokens: int = 2_048,
+        json_output: bool = False,
+        disable_thinking: bool = False,
     ) -> None:
+        if max_output_tokens <= 0:
+            raise ValueError("max_output_tokens must be greater than zero")
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
         self.timeout_seconds = timeout_seconds
+        self.max_output_tokens = int(max_output_tokens)
+        self.json_output = json_output
+        self.disable_thinking = disable_thinking
 
     @property
     def chat_url(self) -> str:
@@ -46,7 +55,7 @@ class OpenAICompatibleProvider(LLMProvider):
             "model": self.model,
             "messages": messages,
             "temperature": 0.1,
-            "max_tokens": 2_048,
+            "max_tokens": self.max_output_tokens,
         }
         if response_schema is not None:
             body["response_format"] = {
@@ -57,6 +66,10 @@ class OpenAICompatibleProvider(LLMProvider):
                     "schema": response_schema.model_json_schema(),
                 },
             }
+        elif self.json_output:
+            body["response_format"] = {"type": "json_object"}
+        if self.disable_thinking:
+            body["thinking"] = {"type": "disabled"}
         headers = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -71,10 +84,17 @@ class OpenAICompatibleProvider(LLMProvider):
             payload = response.json()
             if not isinstance(payload, dict):
                 raise TypeError("Compatible endpoint returned a non-object payload")
+            choices = payload.get("choices")
+            if (
+                isinstance(choices, list)
+                and choices
+                and isinstance(choices[0], dict)
+                and choices[0].get("finish_reason") == "length"
+            ):
+                raise ValueError("Compatible endpoint truncated output at max_tokens")
             content = safe_response_text(payload, "choices", 0, "message", "content")
             if not content:
                 parsed = None
-                choices = payload.get("choices")
                 if (
                     isinstance(choices, list)
                     and choices
