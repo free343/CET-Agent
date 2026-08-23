@@ -11,6 +11,7 @@ POLICY = QueryRoutingPolicy()
     "question",
     (
         "economic 和 economical 有什么区别？",
+        "这个词容易和哪些词混淆？",
         "现在完成时怎么用？",
         "adapt",
         "What does complement mean?",
@@ -56,6 +57,22 @@ def test_long_or_complex_language_task_requires_explicit_model_choice() -> None:
     assert "较长" in length_assessment.reason
     assert task_assessment.route is QueryRoute.CONFIRM_ADVANCED
     assert translation_assessment.route is QueryRoute.CONFIRM_ADVANCED
+
+
+@pytest.mark.parametrize(
+    "question",
+    (
+        "main 有什么近义词？",
+        "请给出 important 的同义词",
+        "What are the antonyms of primary?",
+        "What are the synonyms of stock price?",
+    ),
+)
+def test_lexical_expansion_requires_explicit_advanced_choice(question: str) -> None:
+    assessment = POLICY.assess(question)
+
+    assert assessment.route is QueryRoute.CONFIRM_ADVANCED
+    assert "词卡之外" in assessment.reason
 
 
 def test_explicit_off_topic_policy_takes_priority_over_length() -> None:

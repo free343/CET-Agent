@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from app.ai.conversation import ChatExchange, bounded_chat_history
 from app.ai.llm_provider import Message
 from app.ai.schemas import ClusterAnalysis, WordLearningAidGenerationBatch
+from app.domain.query_routing import is_lexical_expansion_question
 from app.domain.study_help import is_memory_help_question
 
 PROMPT_VERSION = "cluster-v1"
@@ -19,6 +20,15 @@ _EXAMPLE_QUESTION_MARKERS = (
     "用法",
     "example",
     "usage",
+)
+
+_DISTINCTION_QUESTION_MARKERS = (
+    "辨析",
+    "区别",
+    "混淆",
+    "distinction",
+    "difference",
+    "confuse",
 )
 
 VOCABULARY_SYSTEM_PROMPT = """You are a CET vocabulary learning assistant.
@@ -71,6 +81,7 @@ def chat_messages(
     history: Sequence[ChatExchange] = (),
     *,
     context: str | None = None,
+    allow_external_lexical_knowledge: bool = False,
 ) -> list[Message]:
     messages: list[Message] = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
     for exchange in bounded_chat_history(history):
@@ -83,19 +94,39 @@ def chat_messages(
     current_question = question
     if context:
         bounded_context = context.strip()[:MAX_CHAT_CONTEXT_CHARACTERS]
-        task_instruction = _context_task_instruction(question)
+        task_instruction = _context_task_instruction(
+            question,
+            allow_external_lexical_knowledge=allow_external_lexical_knowledge,
+        )
         current_question = (
             "以下是学习界面提供的当前词卡上下文，只用于回答本次问题；"
             "不要据此推断其他学习记录。\n"
             f"{task_instruction}\n\n"
             f"CONTEXT:\n{bounded_context}\n\nQUESTION:\n{question}"
         )
+    elif allow_external_lexical_knowledge and is_lexical_expansion_question(question):
+        current_question = (
+            f"{_advanced_lexical_expansion_instruction()}\n\nQUESTION:\n{question}"
+        )
     messages.append({"role": "user", "content": current_question})
     return messages
 
 
-def _context_task_instruction(question: str) -> str:
+def _context_task_instruction(
+    question: str,
+    *,
+    allow_external_lexical_knowledge: bool = False,
+) -> str:
     normalized = question.casefold()
+    if is_lexical_expansion_question(question):
+        if allow_external_lexical_knowledge:
+            return _advanced_lexical_expansion_instruction()
+        return (
+            "TASK: GROUNDED_LEXICAL_HELP\n"
+            "只使用 CONTEXT 中已提供的当前词卡事实，不得自行列出词卡之外的"
+            "近义词、反义词或对比词。若 CONTEXT 没有直接给出答案，明确说明"
+            "本地模式资料不足，并建议用户在回答模型中选择高级模型。"
+        )
     if is_memory_help_question(question):
         return (
             "TASK: MEMORY_AID\n"
@@ -115,6 +146,16 @@ def _context_task_instruction(question: str) -> str:
             "误区提醒：指出助记联想不等于词源；若能从 CONTEXT 看出搭配，"
             "再提醒该搭配边界。"
         )
+    if any(marker in normalized for marker in _DISTINCTION_QUESTION_MARKERS):
+        return (
+            "TASK: WORD_USAGE_DISTINCTION\n"
+            "只使用 CONTEXT 中当前词卡已经给出的释义、例句、固定搭配和同族词，"
+            "不得把模型自身猜测写成词卡事实。严格按以下三段作答：\n"
+            "核心用法：结合释义和例句说明当前词的使用重点。\n"
+            "常见搭配：优先解释 CONTEXT 已给出的搭配；若未提供就明确写“词卡未提供”。\n"
+            "易误用边界：说明可由现有上下文确定的使用边界。只有 CONTEXT 明确列出"
+            "对比词时才能逐词比较；不得自行添加具体对比词，也不得声称用户混淆了某些词。"
+        )
     if any(marker in normalized for marker in _EXAMPLE_QUESTION_MARKERS):
         return (
             "TASK: EXAMPLE_EXPLANATION\n"
@@ -127,6 +168,19 @@ def _context_task_instruction(question: str) -> str:
         "TASK: CONTEXTUAL_VOCABULARY_HELP\n"
         "先直接回答问题，再用 CONTEXT 中的一项事实支持答案；"
         "不确定的词源、搭配或辨析必须明确说明不确定，不能编造。"
+    )
+
+
+def _advanced_lexical_expansion_instruction() -> str:
+    return (
+        "TASK: ADVANCED_LEXICAL_EXPANSION\n"
+        "可以使用通用英语词汇知识补充 CONTEXT 之外的信息，但 CONTEXT 仍是"
+        "当前目标词及其义项的唯一依据。围绕问题所指的具体义项给出 3 到 6 个"
+        "常用近义词或反义词；每项写出英文词、最接近的中文义、与目标词的"
+        "语义/语域/搭配差异，并给一个简短自然例句。优先常见 CET 或通用词，"
+        "避免生僻、过时或仅在极窄语境成立的候选。必须提醒这些词不一定能在"
+        "所有句子中互换；不得声称补充词来自当前词卡、人工审核内容、用户错词"
+        "记录或个人混淆数据，也不得编造用户学习经历。"
     )
 
 

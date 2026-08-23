@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import threading
-from datetime import datetime
+from dataclasses import replace
+from datetime import datetime, timedelta
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -11,13 +12,15 @@ from PySide6.QtWidgets import QApplication
 from sqlalchemy import func, select
 
 from app.ai.schemas import AIAnswer
-from app.db.models import LearningState, ReviewLog, Word, WordLevel
+from app.db.models import LearningState, PracticeLog, ReviewLog, Word, WordLevel
 from app.domain.fsrs_scheduler import Rating
 from app.domain.query_routing import QueryAssessment, QueryRoute
+from app.services.mastery_service import MasteryService
+from app.services.practice_service import PracticeScope, PracticeService
 from app.services.review_service import ReviewService
 from app.services.wordbook_service import WordbookService
-from app.ui.review_page import ReviewPage
-from app.utils.datetime_utils import UTC
+from app.ui.review_page import ReviewPage, StudySessionMode
+from app.utils.datetime_utils import UTC, utc_now
 
 
 def _wait_until_idle(page: ReviewPage, app: QApplication) -> None:
@@ -96,6 +99,123 @@ def test_review_page_shows_phase_and_session_progress(database, word_id) -> None
     page.deleteLater()
 
 
+def test_learning_route_shows_content_before_starting_the_quiz(
+    database,
+    word_id,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    _add_choice_words(database)
+    page = ReviewPage(
+        ReviewService(database, WordLevel.CET4),
+        session_mode=StudySessionMode.LEARN,
+    )
+
+    page.load_queue()
+    _wait_until_idle(page, app)
+
+    assert page.current is not None
+    assert page.current.word_id == word_id
+    assert "阶段 1/3" in page.phase_label.text()
+    assert page.answer_label.text() == "适应；改编"
+    assert page.learning_aids_frame.isHidden() is False
+    assert page.choice_widget.isHidden() is True
+
+    page.reveal_answer()
+
+    assert "阶段 2/3" in page.phase_label.text()
+    assert page.answer_label.text() == ""
+    assert page.learning_aids_frame.isHidden() is True
+    assert page.choice_widget.isHidden() is False
+
+    correct_index = next(
+        index
+        for index, option in enumerate(page.current.meaning_options)
+        if option.word_id == word_id
+    )
+    page.choice_buttons[correct_index].click()
+    assert "阶段 3/3" in page.phase_label.text()
+    page.submit(Rating.GOOD)
+    _wait_until_idle(page, app)
+
+    with database.session() as session:
+        assert session.scalar(select(func.count(ReviewLog.id))) == 1
+    page.deleteLater()
+
+
+def test_due_review_route_excludes_unseen_words(database, word_id) -> None:
+    app = QApplication.instance() or QApplication([])
+    with database.session() as session:
+        learned = Word(word="learneddue", meaning="已学到期词", level=WordLevel.CET4)
+        learned.learning_state = LearningState(
+            next_review_at=utc_now() - timedelta(hours=1),
+            last_review_at=utc_now() - timedelta(days=2),
+            review_count=1,
+            correct_count=1,
+            fsrs_state=2,
+            fsrs_step=None,
+        )
+        session.add(learned)
+        session.flush()
+        learned_id = learned.id
+    page = ReviewPage(
+        ReviewService(database, WordLevel.CET4),
+        session_mode=StudySessionMode.REVIEW,
+    )
+
+    page.load_queue()
+    _wait_until_idle(page, app)
+
+    assert page.current is not None
+    assert page.current.word_id == learned_id
+    assert page.current.word_id != word_id
+    assert page.continue_button.isHidden() is True
+    page.deleteLater()
+
+
+def test_free_practice_records_attempt_without_rescheduling(database, word_id) -> None:
+    app = QApplication.instance() or QApplication([])
+    reviewed_at = utc_now() - timedelta(hours=1)
+    ReviewService(database, WordLevel.CET4).submit_review(
+        word_id,
+        Rating.GOOD,
+        500,
+        reviewed_at=reviewed_at,
+    )
+    with database.session() as session:
+        state = session.scalar(
+            select(LearningState).where(LearningState.word_id == word_id)
+        )
+        assert state is not None
+        scheduled_at = state.next_review_at
+    page = ReviewPage(
+        ReviewService(database, WordLevel.CET4),
+        session_mode=StudySessionMode.PRACTICE,
+        practice_service=PracticeService(database, WordLevel.CET4),
+        practice_scope=PracticeScope.RECENT,
+    )
+
+    page.load_queue()
+    _wait_until_idle(page, app)
+    assert page.current is not None
+    assert page.rating_buttons[Rating.HARD].isHidden() is True
+    assert page.rating_buttons[Rating.EASY].isHidden() is True
+    page.reveal_answer()
+    page.submit(Rating.GOOD)
+    _wait_until_idle(page, app)
+
+    with database.session() as session:
+        state = session.scalar(
+            select(LearningState).where(LearningState.word_id == word_id)
+        )
+        assert state is not None
+        assert state.next_review_at == scheduled_at
+        assert state.review_count == 1
+        assert session.scalar(select(func.count(ReviewLog.id))) == 1
+        assert session.scalar(select(func.count(PracticeLog.id))) == 1
+    assert page.continue_button.isHidden() is True
+    page.deleteLater()
+
+
 def test_review_page_toggles_current_word_favorite(database, word_id) -> None:
     app = QApplication.instance() or QApplication([])
     wordbook = WordbookService(database)
@@ -120,6 +240,27 @@ def test_review_page_toggles_current_word_favorite(database, word_id) -> None:
     page.deleteLater()
 
 
+def test_review_page_mastered_action_removes_card_after_persisting(
+    database, word_id
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    mastery = MasteryService(database)
+    page = ReviewPage(ReviewService(database), mastery_service=mastery)
+
+    page.show()
+    page.load_queue()
+    _wait_until_idle(page, app)
+    assert page.current is not None
+    assert page.mastered_button.isVisible()
+
+    page.mastered_button.click()
+    _wait_until_idle(page, app)
+
+    assert page.current is None
+    assert [item.word_id for item in mastery.list_mastered()] == [word_id]
+    page.deleteLater()
+
+
 def test_learning_aids_appear_only_after_answer_without_invented_content(
     database,
     word_id,
@@ -135,8 +276,8 @@ def test_learning_aids_appear_only_after_answer_without_invented_content(
 
     assert page.learning_aids_frame.isHidden() is False
     assert page.choice_widget.isHidden() is True
-    assert "待 AI 逐词生成并校验" in page.collocations_label.text()
-    assert "待 AI 逐词生成并校验" in page.word_family_label.text()
+    assert page.collocations_label.text() == "内容尚未生成"
+    assert page.word_family_label.text() == "内容尚未生成"
     page.deleteLater()
 
 
@@ -310,6 +451,51 @@ def test_review_assistant_uses_current_word_snapshot(database, word_id) -> None:
     assert "word=adapt" in assistant.contexts[0]
     assert page.used_hint is True
     assert "关于 adapt" in page.assistant_panel.transcript.toPlainText()
+    page.deleteLater()
+
+
+def test_review_assistant_starts_with_a_wider_sidebar(database) -> None:
+    app = QApplication.instance() or QApplication([])
+    page = ReviewPage(
+        ReviewService(database),
+        assistant_service=RecordingAssistantService(),
+    )
+    page.resize(1120, 720)
+    page.show()
+    app.processEvents()
+
+    assert page.assistant_panel is not None
+    assert page.workspace_splitter is not None
+    assert page.assistant_panel.minimumWidth() == 340
+    assert page.workspace_splitter.sizes()[1] >= 390
+    page.close()
+    page.deleteLater()
+
+
+def test_review_card_transition_clears_embedded_assistant(database, word_id) -> None:
+    app = QApplication.instance() or QApplication([])
+    page = ReviewPage(
+        ReviewService(database),
+        assistant_service=RecordingAssistantService(),
+    )
+    page.load_queue()
+    _wait_until_idle(page, app)
+    assert page.current is not None
+    assert page.assistant_panel is not None
+    page.assistant_panel.transcript.setPlainText("旧单词对话")
+    page.queue = [
+        replace(
+            page.current,
+            word_id=page.current.word_id + 100,
+            word="adopt",
+            meaning="采用；收养",
+        )
+    ]
+
+    page._show_next()
+
+    assert page.current.word == "adopt"
+    assert page.assistant_panel.transcript.toPlainText() == ""
     page.deleteLater()
 
 

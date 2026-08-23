@@ -50,15 +50,32 @@ class DashboardPage(QWidget):
 
         metrics = QGridLayout()
         metrics.setSpacing(14)
-        self.due = MetricCard("今日待复习")
-        self.completed = MetricCard("今日已完成")
+        self.new = MetricCard("待学新词")
+        self.due = MetricCard("到期复习")
+        self.completed = MetricCard("今日学习记录")
         self.accuracy = MetricCard("近 7 天正确率")
         self.streak = MetricCard("连续学习天数")
-        for index, card in enumerate(
-            (self.due, self.completed, self.accuracy, self.streak)
+        for card, row, column in (
+            (self.new, 0, 0),
+            (self.due, 0, 1),
+            (self.completed, 0, 2),
+            (self.accuracy, 1, 0),
+            (self.streak, 1, 1),
         ):
-            metrics.addWidget(card, 0, index)
+            metrics.addWidget(card, row, column)
+        for column in range(3):
+            metrics.setColumnStretch(column, 1)
         layout.addLayout(metrics)
+
+        self.clock_warning = QLabel("")
+        self.clock_warning.setObjectName("ClockWarning")
+        self.clock_warning.setWordWrap(True)
+        self.clock_warning.setStyleSheet(
+            "background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; "
+            "border-radius: 8px; padding: 10px 12px;"
+        )
+        self.clock_warning.hide()
+        layout.addWidget(self.clock_warning)
 
         wrong_card = QFrame()
         wrong_card.setObjectName("Card")
@@ -85,6 +102,7 @@ class DashboardPage(QWidget):
         return True
 
     def _show_stats(self, stats: DashboardStats) -> None:
+        self.new.value.setText(str(stats.new_count))
         self.due.value.setText(str(stats.due_count))
         self.completed.value.setText(str(stats.today_completed))
         self.accuracy.value.setText(f"{stats.seven_day_accuracy:.1f}%")
@@ -98,11 +116,34 @@ class DashboardPage(QWidget):
             )
         else:
             self.wrong_words.setText("暂无错误记录，完成复习后会在这里显示。")
+        if stats.future_review_count:
+            latest = (
+                stats.latest_future_review_at.astimezone().strftime("%Y-%m-%d %H:%M")
+                if stats.latest_future_review_at is not None
+                else "未知时间"
+            )
+            self.clock_warning.setText(
+                f"检测到 {stats.future_review_count} 条学习记录晚于当前系统时间"
+                f"（最晚 {latest}）。这通常由系统时钟回拨造成，部分复习可能暂时不显示；"
+                "请先校准 Windows 日期、时间和时区。应用不会自动改写这些记录。"
+            )
+            self.clock_warning.show()
+        else:
+            self.clock_warning.clear()
+            self.clock_warning.hide()
 
     def _show_failure(self, message: str) -> None:
         logger.error("Could not load dashboard statistics: %s", message)
-        for card in (self.due, self.completed, self.accuracy, self.streak):
+        for card in (
+            self.new,
+            self.due,
+            self.completed,
+            self.accuracy,
+            self.streak,
+        ):
             card.value.setText("—")
+        self.clock_warning.clear()
+        self.clock_warning.hide()
         self.wrong_words.setText("暂时无法读取学习数据，请稍后重试。")
 
     def _worker_finished(self) -> None:

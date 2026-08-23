@@ -25,16 +25,22 @@ from PySide6.QtWidgets import (
 
 from app.config import Settings
 from app.infrastructure.notification_adapter import QtNotificationAdapter
+from app.services.acquisition_service import AcquisitionService
 from app.services.ai_service import AIService
 from app.services.analysis_service import AnalysisService
+from app.services.learning_aid_feedback_service import LearningAidFeedbackService
 from app.services.learning_service import LearningService
+from app.services.mastery_service import MasteryService
+from app.services.practice_service import PracticeService
 from app.services.reminder_service import ReminderService, ReminderStatus
 from app.services.review_service import ReviewService
 from app.services.wordbook_service import WordbookService
+from app.ui.acquisition_page import AcquisitionPage
 from app.ui.analysis_page import AnalysisPage
 from app.ui.chat_page import ChatPage
 from app.ui.dashboard_page import DashboardPage
-from app.ui.review_page import ReviewPage
+from app.ui.mastered_page import MasteredPage
+from app.ui.review_page import ReviewPage, StudySessionMode
 from app.ui.settings_page import SettingsPage
 from app.ui.theme import APP_STYLESHEET
 from app.ui.widgets.async_worker import AsyncWorker
@@ -44,6 +50,10 @@ from app.utils.datetime_utils import ensure_utc, utc_now
 
 logger = logging.getLogger(__name__)
 MAX_QT_TIMER_INTERVAL_MS = 2_147_483_647
+DEFAULT_WINDOW_WIDTH = 1280
+DEFAULT_WINDOW_HEIGHT = 760
+MINIMUM_WINDOW_WIDTH = 960
+MINIMUM_WINDOW_HEIGHT = 620
 
 
 def reminder_wakeup_delay_ms(
@@ -69,12 +79,16 @@ class MainWindow(QMainWindow):
         ai_service: AIService,
         reminder_service: ReminderService,
         wordbook_service: WordbookService,
+        learning_aid_feedback_service: LearningAidFeedbackService,
+        practice_service: PracticeService,
         settings: Settings,
+        acquisition_service: AcquisitionService | None = None,
+        mastery_service: MasteryService | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("CET-Agent")
-        self.resize(1080, 700)
-        self.setMinimumSize(880, 580)
+        self.resize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        self.setMinimumSize(MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT)
         self.setStyleSheet(APP_STYLESHEET)
         self.reminder_service = reminder_service
         self._closing_after_workers = False
@@ -82,6 +96,13 @@ class MainWindow(QMainWindow):
         self.reminder_worker: AsyncWorker | None = None
         self.reminder_worker_action: str | None = None
         self._reminder_tasks: deque[tuple[str, Callable[[], object]]] = deque()
+        self.acquisition_service = acquisition_service or AcquisitionService(
+            review_service.database,
+            review_service.study_level,
+        )
+        self.mastery_service = mastery_service or MasteryService(
+            review_service.database
+        )
 
         root = QWidget()
         root_layout = QHBoxLayout(root)
@@ -101,20 +122,51 @@ class MainWindow(QMainWindow):
         self.pages = QStackedWidget()
         self.dashboard_page = DashboardPage(learning_service)
         self.wordbook_page = WordbookPage(wordbook_service)
+        self.mastered_page = MasteredPage(self.mastery_service)
+        self.learning_page = AcquisitionPage(
+            self.acquisition_service,
+            on_changed=self._review_completed,
+            on_session_state_changed=self._review_session_changed,
+            assistant_service=ai_service,
+            wordbook_service=wordbook_service,
+            mastery_service=self.mastery_service,
+        )
         self.review_page = ReviewPage(
             review_service,
-            self._review_completed,
-            self._review_session_changed,
-            ai_service,
-            wordbook_service,
+            on_reviewed=self._review_completed,
+            on_session_state_changed=self._review_session_changed,
+            assistant_service=ai_service,
+            wordbook_service=wordbook_service,
+            learning_aid_feedback_service=learning_aid_feedback_service,
+            mastery_service=self.mastery_service,
+            session_mode=StudySessionMode.REVIEW,
+        )
+        self.practice_page = ReviewPage(
+            review_service,
+            on_reviewed=self._review_completed,
+            on_session_state_changed=self._review_session_changed,
+            assistant_service=ai_service,
+            wordbook_service=wordbook_service,
+            learning_aid_feedback_service=learning_aid_feedback_service,
+            mastery_service=self.mastery_service,
+            session_mode=StudySessionMode.PRACTICE,
+            practice_service=practice_service,
+        )
+        self.study_pages = (
+            self.learning_page,
+            self.review_page,
+            self.practice_page,
         )
         self.analysis_page = AnalysisPage(analysis_service, ai_service)
         self.chat_page = ChatPage(ai_service)
         self.settings_page = SettingsPage(settings)
         pages = (
             ("学习概览", self.dashboard_page),
-            ("单词复习", self.review_page),
+            ("学习新词", self.learning_page),
+            ("到期复习", self.review_page),
+            ("自由复习", self.practice_page),
             ("收藏单词", self.wordbook_page),
+            ("已掌握单词", self.mastered_page),
             ("易混词分析", self.analysis_page),
             ("AI 助手", self.chat_page),
             ("设置", self.settings_page),
@@ -169,19 +221,20 @@ class MainWindow(QMainWindow):
         target = self.pages.widget(index)
         if target is None:
             return
-        if (
-            self.pages.currentWidget() is self.review_page
-            and target is not self.review_page
-        ):
+        study_pages = getattr(self, "study_pages", (self.review_page,))
+        current = self.pages.currentWidget()
+        if current in study_pages and target is not current:
             self._review_session_changed(False)
         self.pages.setCurrentIndex(index)
         if target is self.dashboard_page:
             self.dashboard_page.refresh()
-        elif target is self.review_page:
+        elif target in study_pages:
             self._review_session_changed(True)
-            self.review_page.load_queue()
+            target.load_queue()
         elif target is self.wordbook_page:
             self.wordbook_page.refresh()
+        elif target is self.mastered_page:
+            self.mastered_page.refresh()
         elif target is self.analysis_page:
             self.analysis_page.refresh()
 
@@ -205,9 +258,12 @@ class MainWindow(QMainWindow):
         self._enqueue_reminder_task("snooze", self.reminder_service.snooze)
 
     def _review_session_changed(self, active: bool) -> None:
+        study_pages = getattr(self, "study_pages", None)
+        if study_pages is None:
+            review_page = getattr(self, "review_page", None)
+            study_pages = (review_page,) if review_page is not None else ()
         if active and (
-            self._closing_after_workers
-            or self.pages.currentWidget() is not self.review_page
+            self._closing_after_workers or self.pages.currentWidget() not in study_pages
         ):
             return
         self.reminder_service.set_review_session_active(active)
@@ -343,15 +399,19 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def _active_workers(self) -> list:
-        review_assistant = getattr(self.review_page, "assistant_panel", None)
-        workers = (
-            self.dashboard_page.worker,
-            self.review_page.worker,
-            getattr(review_assistant, "worker", None),
-            self.wordbook_page.worker,
-            self.analysis_page.worker,
-            self.chat_page.worker,
-            self.reminder_worker,
+        study_pages = getattr(self, "study_pages", (self.review_page,))
+        workers = [self.dashboard_page.worker]
+        for page in study_pages:
+            assistant = getattr(page, "assistant_panel", None)
+            workers.extend((page.worker, getattr(assistant, "worker", None)))
+        workers.extend(
+            (
+                self.wordbook_page.worker,
+                getattr(getattr(self, "mastered_page", None), "worker", None),
+                self.analysis_page.worker,
+                self.chat_page.worker,
+                self.reminder_worker,
+            )
         )
         return [
             worker for worker in workers if worker is not None and worker.isRunning()

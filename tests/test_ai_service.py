@@ -247,31 +247,22 @@ def test_chat_answer_is_truncated_to_capacity_budget(database) -> None:
 
 
 def test_contextual_chat_passes_only_explicit_word_context(database) -> None:
-    provider = FakeProvider(["adapt 可以联想 adjust。"])
+    provider = FakeProvider(["adapt 在这里表示适应。"])
 
     answer = AIService(database, provider).ask(
-        "这个词怎么记？",
-        context="word=adapt\nmeaning=适应；改编",
+        "请解释这个词在例句中的用法。",
+        context=("word=adapt\nmeaning=适应；改编\nexample=Students adapt quickly."),
     )
 
     assert answer.degraded is False
     prompt = provider.messages[0][-1]["content"]
     assert "word=adapt" in prompt
     assert "meaning=适应；改编" in prompt
-    assert "这个词怎么记？" in prompt
+    assert "请解释这个词在例句中的用法。" in prompt
 
 
 def test_contextual_memory_answer_is_grounded_by_the_word_card(database) -> None:
-    provider = FakeProvider(
-        [
-            (
-                "记忆钩子：adapt 的 a 是适应。\n"
-                "场景联想：学生进入新学校后调整习惯，很快融入新环境。\n"
-                "主动回忆：多读几遍。\n"
-                "误区提醒：这是词根。"
-            )
-        ]
-    )
+    provider = FakeProvider(["不应调用本地模型"])
 
     answer = AIService(database, provider).ask(
         "这个词如何记忆？",
@@ -279,35 +270,99 @@ def test_contextual_memory_answer_is_grounded_by_the_word_card(database) -> None
             "word=adapt\n"
             "phonetic=/əˈdæpt/\n"
             "meaning=适应；改编\n"
-            "example=Students adapt quickly to new environments."
+            "example=Students adapt quickly to new environments.\n"
+            "collocations=adapt to｜适应；adapt for｜改编用于\n"
+            "word_family=adaptable (adj.)｜能适应的"
         ),
     )
 
-    assert "adapt 的 a" not in answer.text
-    assert "多读几遍" not in answer.text
-    assert "“Students adapt quickly to new environments.” = 适应；改编" in answer.text
-    assert "Students ____ quickly to new environments." in answer.text
-    assert "学生进入新学校后调整习惯，很快融入新环境。" in answer.text
+    assert provider.calls == 0
+    assert answer.model == "deterministic-memory"
+    assert "核心义：adapt = 适应；改编" in answer.text
+    assert "搭配锚点：adapt to｜适应；adapt for｜改编用于" in answer.text
+    assert "Students ______ quickly to new environments." in answer.text
+    assert "词族串联：adaptable (adj.)｜能适应的" in answer.text
+    assert "10 秒自测：适应；改编 → ____" in answer.text
 
 
 def test_contextual_memory_answer_without_example_uses_meaning_recall(database) -> None:
-    provider = FakeProvider(
-        [
-            (
-                "记忆钩子：government 的 govern 是可靠词根。\n"
-                "场景联想：市民在政府服务大厅办理证件。\n"
-                "主动回忆：反复背诵。"
-            )
-        ]
-    )
+    provider = FakeProvider(["不应调用本地模型"])
 
     answer = AIService(database, provider).ask(
         "government 怎么记？",
         context="word=government\nmeaning=n. 政府；治理\nexample=",
     )
 
-    assert "government 的 govern" not in answer.text
-    assert "反复背诵" not in answer.text
-    assert "“government” = n. 政府；治理" in answer.text
-    assert "n. 政府；治理 → ____（写出英文单词）" in answer.text
-    assert "市民在政府服务大厅办理证件。" in answer.text
+    assert provider.calls == 0
+    assert answer.model == "deterministic-memory"
+    assert "核心义：government = n. 政府；治理" in answer.text
+    assert "词卡暂无可用例句" in answer.text
+    assert "n. 政府；治理 → ____" in answer.text
+
+
+def test_contextual_memory_uses_advanced_provider_only_when_explicit(database) -> None:
+    local_provider = FakeProvider(["不应调用本地模型"])
+    advanced_provider = FakeProvider(
+        ["场景联想：学生进入新学校后调整习惯，很快融入新环境。"],
+        model="advanced-model",
+    )
+    service = AIService(database, local_provider, advanced_provider)
+
+    answer = service.ask(
+        "请深入说明这个词怎么记？",
+        use_advanced=True,
+        context=(
+            "word=adapt\n"
+            "meaning=适应；改编\n"
+            "example=Students adapt quickly to new environments."
+        ),
+    )
+
+    assert local_provider.calls == 0
+    assert advanced_provider.calls == 1
+    assert answer.model == "advanced-model"
+    assert "学生进入新学校后调整习惯，很快融入新环境。" in answer.text
+
+
+def test_advanced_lexical_expansion_can_add_labeled_external_candidates(
+    database,
+) -> None:
+    local_provider = FakeProvider(["不应调用本地模型"])
+    advanced_provider = FakeProvider(
+        ["primary：主要的；通常强调首要地位。"],
+        model="deepseek-v4-flash",
+    )
+
+    answer = AIService(database, local_provider, advanced_provider).ask(
+        "main 有什么近义词？",
+        use_advanced=True,
+        context=(
+            "word=main\n"
+            "meaning=adj. 主要的\n"
+            "example=The main reason is cost.\n"
+            "collocations=main reason｜主要原因"
+        ),
+    )
+
+    assert local_provider.calls == 0
+    assert advanced_provider.calls == 1
+    prompt = advanced_provider.messages[0][-1]["content"]
+    assert "TASK: ADVANCED_LEXICAL_EXPANSION" in prompt
+    assert "3 到 6 个" in prompt
+    assert "通用英语词汇知识" in prompt
+    assert answer.text.startswith("高级模型补充（未经过当前词卡人工审核）")
+    assert "primary" in answer.text
+
+
+def test_local_contextual_lexical_help_cannot_invent_card_content(database) -> None:
+    provider = FakeProvider(["当前词卡没有提供近义词。"])
+
+    AIService(database, provider).ask(
+        "main 有什么近义词？",
+        context="word=main\nmeaning=adj. 主要的",
+    )
+
+    prompt = provider.messages[0][-1]["content"]
+    assert "TASK: GROUNDED_LEXICAL_HELP" in prompt
+    assert "不得自行列出词卡之外" in prompt
+    assert "选择高级模型" in prompt

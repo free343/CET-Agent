@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from app.domain.acquisition import mask_target_forms
+
 _MEMORY_QUESTION_MARKERS = (
     "怎么记",
     "如何记",
@@ -13,13 +15,63 @@ _MEMORY_QUESTION_MARKERS = (
     "助记",
     "mnemonic",
 )
-_CONTEXT_FIELDS = frozenset(("word", "meaning", "example"))
+_CONTEXT_FIELDS = frozenset(
+    ("word", "meaning", "example", "collocations", "word_family")
+)
+_REQUIRED_CONTEXT_FIELDS = frozenset(("word", "meaning"))
 _SCENE_PREFIX = re.compile(r"^场景联想\s*[：:]\s*(.*)$")
 
 
 def is_memory_help_question(question: str) -> bool:
     normalized = question.casefold()
     return any(marker in normalized for marker in _MEMORY_QUESTION_MARKERS)
+
+
+def build_deterministic_memory_answer(
+    question: str,
+    context: str | None,
+) -> str | None:
+    """Build an instant memory card exclusively from supplied card facts."""
+    if not context or not is_memory_help_question(question):
+        return None
+    fields = _parse_card_context(context)
+    if not _REQUIRED_CONTEXT_FIELDS.issubset(fields):
+        return None
+    word = fields["word"]
+    meaning = fields["meaning"]
+    if not word or not meaning:
+        return None
+
+    example = fields.get("example", "")
+    collocations = _context_items(fields.get("collocations", ""))[:2]
+    word_family = _context_items(fields.get("word_family", ""))[:2]
+    if collocations:
+        collocation_line = "；".join(collocations)
+    elif example:
+        collocation_line = "词卡暂无可靠固定搭配；先用例句建立词义联系。"
+    else:
+        collocation_line = "词卡暂无可靠固定搭配。"
+
+    if example:
+        cloze = mask_target_forms(word, example)
+        example_line = (
+            f"{cloze}（提示：{meaning}）"
+            if cloze != example
+            else f"{example}（词卡例句未找到可安全挖空的目标词形）"
+        )
+    else:
+        example_line = "词卡暂无可用例句；先做中文义到英文拼写回忆。"
+    family_line = (
+        "；".join(word_family) if word_family else "暂无可靠词族条目，避免牵强联想。"
+    )
+    return (
+        "快速助记（程序生成，不调用模型）\n"
+        f"核心义：{word} = {meaning}\n"
+        f"搭配锚点：{collocation_line}\n"
+        f"例句回忆：{example_line}\n"
+        f"词族串联：{family_line}\n"
+        f"10 秒自测：{meaning} → ____（写出英文单词）"
+    )
 
 
 def ground_contextual_memory_answer(
@@ -32,21 +84,17 @@ def ground_contextual_memory_answer(
         return model_answer
 
     fields = _parse_card_context(context)
-    if fields.keys() != _CONTEXT_FIELDS:
+    if not _REQUIRED_CONTEXT_FIELDS.issubset(fields):
         return model_answer
     word = fields["word"]
     meaning = fields["meaning"]
-    example = fields["example"]
+    example = fields.get("example", "")
     if not word or not meaning:
         return model_answer
 
     if example:
-        word_pattern = re.compile(
-            rf"(?<![A-Za-z]){re.escape(word)}(?![A-Za-z])",
-            flags=re.IGNORECASE,
-        )
-        cloze, replacements = word_pattern.subn("____", example, count=1)
-        if replacements != 1:
+        cloze = mask_target_forms(word, example)
+        if cloze == example:
             return model_answer
         hook = f"“{example}” = {meaning}"
         recall = f"“{cloze}”（提示：{meaning}）"
@@ -81,6 +129,12 @@ def _parse_card_context(context: str) -> dict[str, str]:
         if separator and normalized_key in _CONTEXT_FIELDS:
             fields[normalized_key] = value.strip()
     return fields
+
+
+def _context_items(value: str) -> tuple[str, ...]:
+    return tuple(
+        item.strip() for item in re.split(r"\s+;\s+|；", value) if item.strip()
+    )
 
 
 def _extract_scene(model_answer: str) -> str:

@@ -17,6 +17,9 @@ STATS = DashboardStats(
     seven_day_accuracy=87.5,
     learning_streak=3,
     high_frequency_wrong=(WrongWordStat("adapt", 2),),
+    new_count=8,
+    future_review_count=2,
+    latest_future_review_at=None,
 )
 
 
@@ -58,10 +61,12 @@ def test_dashboard_refresh_runs_off_ui_thread_and_renders_result() -> None:
         _wait_until_idle(page, app)
 
         assert page.due.value.text() == "12"
+        assert page.new.value.text() == "8"
         assert page.completed.value.text() == "7"
         assert page.accuracy.value.text() == "87.5%"
         assert page.streak.value.text() == "3 天"
         assert page.wrong_words.text() == "adapt  × 2"
+        assert page.clock_warning.isHidden() is False
     finally:
         service.release.set()
         if page.worker is not None:
@@ -100,11 +105,14 @@ def test_dashboard_failure_clears_stale_metrics() -> None:
 
     page = DashboardPage(FailingDashboardService())
     page.due.value.setText("99")
+    page.new.value.setText("99")
 
     assert page.refresh() is True
     _wait_until_idle(page, app)
 
     assert page.due.value.text() == "—"
+    assert page.new.value.text() == "—"
     assert "private" not in page.wrong_words.text()
     assert page.wrong_words.text() == "暂时无法读取学习数据，请稍后重试。"
+    assert page.clock_warning.isHidden() is True
     page.deleteLater()

@@ -66,6 +66,31 @@ class RelationType(str, Enum):
     MIXED = "MIXED"
 
 
+class LearningAidIssueType(str, Enum):
+    EXAMPLE_UNNATURAL = "EXAMPLE_UNNATURAL"
+    MEANING_MISMATCH = "MEANING_MISMATCH"
+    TRANSLATION_INACCURATE = "TRANSLATION_INACCURATE"
+    COLLOCATION_UNCOMMON = "COLLOCATION_UNCOMMON"
+    WORD_FAMILY_INCORRECT = "WORD_FAMILY_INCORRECT"
+    OTHER = "OTHER"
+
+
+class PracticeScope(str, Enum):
+    YESTERDAY = "YESTERDAY"
+    RECENT = "RECENT"
+    WRONG = "WRONG"
+    FAVORITES = "FAVORITES"
+
+
+class AcquisitionTaskType(str, Enum):
+    """The deterministic task used for one pre-FSRS acquisition attempt."""
+
+    MEANING_CHOICE = "MEANING_CHOICE"
+    CLOZE_CHOICE = "CLOZE_CHOICE"
+    SPELLING = "SPELLING"
+    SELF_CONFIRM = "SELF_CONFIRM"
+
+
 class Word(Base):
     __tablename__ = "words"
 
@@ -82,6 +107,15 @@ class Word(Base):
         back_populates="word", cascade="all, delete-orphan", uselist=False
     )
     review_logs: Mapped[list[ReviewLog]] = relationship(
+        back_populates="word", cascade="all, delete-orphan"
+    )
+    practice_logs: Mapped[list[PracticeLog]] = relationship(
+        back_populates="word", cascade="all, delete-orphan"
+    )
+    acquisition_state: Mapped[WordAcquisitionState | None] = relationship(
+        back_populates="word", cascade="all, delete-orphan", uselist=False
+    )
+    acquisition_attempts: Mapped[list[AcquisitionAttempt]] = relationship(
         back_populates="word", cascade="all, delete-orphan"
     )
 
@@ -156,10 +190,115 @@ class ReviewLog(Base):
     word: Mapped[Word] = relationship(back_populates="review_logs")
 
 
+class PracticeLog(Base):
+    """An optional recall attempt that never changes the FSRS card state."""
+
+    __tablename__ = "practice_logs"
+    __table_args__ = (
+        CheckConstraint(
+            "response_time_ms >= 0",
+            name="ck_practice_response_time",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    word_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), index=True
+    )
+    practiced_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    is_correct: Mapped[bool] = mapped_column(Boolean)
+    response_time_ms: Mapped[int] = mapped_column(Integer, default=0)
+    practice_scope: Mapped[PracticeScope] = mapped_column(
+        SqlEnum(PracticeScope, native_enum=False)
+    )
+    question_type: Mapped[str] = mapped_column(String(50), default="meaning_recall")
+    user_answer: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+    word: Mapped[Word] = relationship(back_populates="practice_logs")
+
+
+class WordAcquisitionState(Base):
+    """Persistent 0-3 proficiency before a word enters formal FSRS review."""
+
+    __tablename__ = "word_acquisition_states"
+    __table_args__ = (
+        CheckConstraint(
+            "proficiency_level BETWEEN 0 AND 3",
+            name="ck_acquisition_proficiency_level",
+        ),
+    )
+
+    word_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), primary_key=True
+    )
+    proficiency_level: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=utc_now, onupdate=utc_now
+    )
+
+    word: Mapped[Word] = relationship(back_populates="acquisition_state")
+
+
+class AcquisitionAttempt(Base):
+    """Append-only evidence for a deterministic acquisition-stage attempt."""
+
+    __tablename__ = "acquisition_attempts"
+    __table_args__ = (
+        CheckConstraint(
+            "level_before BETWEEN 0 AND 2",
+            name="ck_acquisition_attempt_level_before",
+        ),
+        CheckConstraint(
+            "level_after BETWEEN level_before AND level_before + 1",
+            name="ck_acquisition_attempt_level_after",
+        ),
+        CheckConstraint(
+            "response_time_ms >= 0",
+            name="ck_acquisition_attempt_response_time",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    word_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), index=True
+    )
+    attempted_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    level_before: Mapped[int] = mapped_column(Integer)
+    level_after: Mapped[int] = mapped_column(Integer)
+    task_type: Mapped[AcquisitionTaskType] = mapped_column(
+        SqlEnum(AcquisitionTaskType, native_enum=False)
+    )
+    is_correct: Mapped[bool] = mapped_column(Boolean)
+    self_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    response_time_ms: Mapped[int] = mapped_column(Integer, default=0)
+    user_answer: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+    word: Mapped[Word] = relationship(back_populates="acquisition_attempts")
+
+
 class FavoriteWord(Base):
     """A single-user personal wordbook entry."""
 
     __tablename__ = "favorite_words"
+
+    word_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+
+    word: Mapped[Word] = relationship()
+
+
+class MasteredWord(Base):
+    """A reversible user-owned exclusion from all active study routes."""
+
+    __tablename__ = "mastered_words"
 
     word_id: Mapped[int] = mapped_column(
         ForeignKey("words.id", ondelete="CASCADE"), primary_key=True
@@ -197,6 +336,26 @@ class WordLearningAid(Base):
     )
 
     word: Mapped[Word] = relationship()
+
+
+class WordLearningAidFeedback(Base):
+    """The user's latest local quality report for generated study content."""
+
+    __tablename__ = "word_learning_aid_feedback"
+
+    word_id: Mapped[int] = mapped_column(
+        ForeignKey("word_learning_aids.word_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    issue_type: Mapped[LearningAidIssueType] = mapped_column(
+        SqlEnum(LearningAidIssueType, native_enum=False)
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=utc_now, onupdate=utc_now
+    )
+
+    learning_aid: Mapped[WordLearningAid] = relationship()
 
 
 class ConfusionEdge(Base):

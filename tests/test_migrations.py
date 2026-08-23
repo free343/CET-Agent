@@ -418,6 +418,162 @@ def test_version_seven_adds_word_learning_aids_table(tmp_path) -> None:
         database.dispose()
 
 
+def test_version_eight_adds_learning_aid_feedback_table(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 8)"
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE words (
+                    id INTEGER PRIMARY KEY
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE word_learning_aids (
+                    word_id INTEGER PRIMARY KEY
+                )
+                """
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+
+        assert (
+            "word_learning_aid_feedback" in inspect(database.engine).get_table_names()
+        )
+        columns = {
+            column["name"]
+            for column in inspect(database.engine).get_columns(
+                "word_learning_aid_feedback"
+            )
+        }
+        assert columns == {"word_id", "issue_type", "created_at", "updated_at"}
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
+def test_version_nine_adds_practice_logs_table(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 9)"
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE words (
+                    id INTEGER PRIMARY KEY
+                )
+                """
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+
+        assert "practice_logs" in inspect(database.engine).get_table_names()
+        columns = {
+            column["name"]
+            for column in inspect(database.engine).get_columns("practice_logs")
+        }
+        assert columns == {
+            "id",
+            "word_id",
+            "practiced_at",
+            "is_correct",
+            "response_time_ms",
+            "practice_scope",
+            "question_type",
+            "user_answer",
+            "created_at",
+        }
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
+def test_version_ten_adds_acquisition_and_mastery_tables(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 10)"
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE words (
+                    id INTEGER PRIMARY KEY
+                )
+                """
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+        inspector = inspect(database.engine)
+        assert {
+            "word_acquisition_states",
+            "acquisition_attempts",
+            "mastered_words",
+        }.issubset(inspector.get_table_names())
+        assert {
+            "word_id",
+            "proficiency_level",
+            "completed_at",
+            "created_at",
+            "updated_at",
+        } == {
+            column["name"]
+            for column in inspector.get_columns("word_acquisition_states")
+        }
+        assert {
+            "id",
+            "word_id",
+            "attempted_at",
+            "level_before",
+            "level_after",
+            "task_type",
+            "is_correct",
+            "self_confirmed",
+            "response_time_ms",
+            "user_answer",
+            "created_at",
+        } == {
+            column["name"] for column in inspector.get_columns("acquisition_attempts")
+        }
+        assert {"word_id", "created_at"} == {
+            column["name"] for column in inspector.get_columns("mastered_words")
+        }
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
 def test_newer_database_version_is_rejected(tmp_path) -> None:
     database = make_database(tmp_path)
     try:

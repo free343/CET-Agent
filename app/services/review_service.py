@@ -7,51 +7,28 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.database import Database
 from app.db.models import (
-    FavoriteWord,
     LearningState,
+    MasteredWord,
     ReviewLog,
     Word,
-    WordLearningAid,
+    WordAcquisitionState,
     WordLevel,
 )
 from app.db.repositories import LearningStateRepository, ReviewLogRepository
 from app.domain.fsrs_scheduler import Rating, ReviewScheduleResult, schedule_review
-from app.domain.meaning_quiz import (
-    MeaningCandidate,
-    MeaningOption,
-    build_meaning_options,
+from app.services.review_item_view import (
+    ReviewItem,
+    build_review_items,
 )
-from app.services.learning_aid_view import (
-    format_collocations,
-    format_word_family,
-    resolve_example,
-    resolve_example_translation,
-)
+from app.services.study_eligibility import effective_proficiency, is_not_mastered
 from app.utils.datetime_utils import ensure_utc, utc_now
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True, slots=True)
-class ReviewItem:
-    word_id: int
-    word: str
-    phonetic: str
-    meaning: str
-    example: str
-    level: WordLevel
-    lapse_count: int
-    error_count: int
-    next_review_at: datetime
-    meaning_options: tuple[MeaningOption, ...] = ()
-    is_favorite: bool = False
-    example_translation: str = ""
-    collocations: tuple[str, ...] = ()
-    word_family: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,97 +63,91 @@ class ReviewService:
     def get_due_words(
         self, limit: int = 30, now: datetime | None = None
     ) -> list[ReviewItem]:
+        """Return the legacy union queue used by compatibility callers."""
+        return self._get_due_words(limit, now)
+
+    def get_new_words(
+        self, limit: int = 30, now: datetime | None = None
+    ) -> list[ReviewItem]:
+        """Return released cards whose acquisition proficiency is below 3."""
+        return self._get_due_words(
+            limit,
+            now,
+            effective_proficiency() < 3,
+        )
+
+    def get_due_review_words(
+        self, limit: int = 30, now: datetime | None = None
+    ) -> list[ReviewItem]:
+        """Return acquired cards whose formal review time has arrived."""
+        return self._get_due_words(
+            limit,
+            now,
+            effective_proficiency() == 3,
+        )
+
+    def _get_due_words(
+        self,
+        limit: int,
+        now: datetime | None,
+        *conditions: ColumnElement[bool],
+    ) -> list[ReviewItem]:
         checked_at = ensure_utc(now or utc_now())
         safe_limit = max(1, min(limit, 200))
         with self.database.session() as session:
             states = session.scalars(
                 LearningStateRepository(session)
                 .due_query(checked_at, self.study_level)
+                .where(is_not_mastered(), *conditions)
                 .limit(safe_limit)
             ).all()
-            favorite_ids = set(
-                session.scalars(
-                    select(FavoriteWord.word_id).where(
-                        FavoriteWord.word_id.in_(state.word_id for state in states)
-                    )
-                )
-            )
-            aid_by_word_id = {
-                aid.word_id: aid
-                for aid in session.scalars(
-                    select(WordLearningAid).where(
-                        WordLearningAid.word_id.in_(state.word_id for state in states)
-                    )
-                )
-            }
-            candidates_by_level = self._meaning_candidates_by_level(session, states)
-            return [
-                ReviewItem(
-                    word_id=state.word.id,
-                    word=state.word.word,
-                    phonetic=state.word.phonetic,
-                    meaning=state.word.meaning,
-                    example=resolve_example(
-                        state.word.example,
-                        aid_by_word_id.get(state.word.id),
-                    ),
-                    level=state.word.level,
-                    lapse_count=state.lapse_count,
-                    error_count=state.error_count,
-                    next_review_at=state.next_review_at,
-                    meaning_options=build_meaning_options(
-                        MeaningCandidate(
-                            word_id=state.word.id,
-                            meaning=state.word.meaning,
-                            frequency=state.word.frequency,
-                            review_count=state.review_count,
-                        ),
-                        candidates_by_level.get(state.word.level, []),
-                    ),
-                    is_favorite=state.word.id in favorite_ids,
-                    example_translation=resolve_example_translation(
-                        aid_by_word_id.get(state.word.id)
-                    ),
-                    collocations=format_collocations(aid_by_word_id.get(state.word.id)),
-                    word_family=format_word_family(aid_by_word_id.get(state.word.id)),
-                )
-                for state in states
-            ]
+            return build_review_items(session, states)
 
-    @staticmethod
-    def _meaning_candidates_by_level(
-        session: Session,
-        states: list[LearningState],
-    ) -> dict[WordLevel, list[MeaningCandidate]]:
-        levels = {state.word.level for state in states}
-        if not levels:
-            return {}
-        candidates_by_level: dict[WordLevel, list[MeaningCandidate]] = {
-            level: [] for level in levels
-        }
-        rows = session.execute(
-            select(
-                Word.id,
-                Word.meaning,
-                Word.frequency,
-                Word.level,
-                LearningState.review_count,
+    def get_words_by_ids(self, word_ids: list[int]) -> list[ReviewItem]:
+        """Build review-card projections while preserving caller order."""
+        ordered_ids = list(dict.fromkeys(int(word_id) for word_id in word_ids))[:200]
+        if not ordered_ids:
+            return []
+        with self.database.session() as session:
+            statement = (
+                select(LearningState)
+                .join(Word, LearningState.word_id == Word.id)
+                .options(joinedload(LearningState.word))
+                .where(LearningState.word_id.in_(ordered_ids))
+                .where(is_not_mastered())
             )
-            .join(LearningState, LearningState.word_id == Word.id)
-            .where(Word.level.in_(levels))
-        ).all()
-        for row in rows:
-            candidates_by_level[row.level].append(
-                MeaningCandidate(
-                    word_id=row.id,
-                    meaning=row.meaning,
-                    frequency=row.frequency,
-                    review_count=row.review_count,
-                )
-            )
-        return candidates_by_level
+            if self.study_level is not None:
+                statement = statement.where(Word.level == self.study_level)
+            states = list(session.scalars(statement))
+            state_by_word_id = {state.word_id: state for state in states}
+            ordered_states = [
+                state_by_word_id[word_id]
+                for word_id in ordered_ids
+                if word_id in state_by_word_id
+            ]
+            return build_review_items(session, ordered_states)
 
     def due_count(self, now: datetime | None = None) -> int:
+        """Count the legacy union queue used by compatibility callers."""
+        return self._due_count(now)
+
+    def new_count(self, now: datetime | None = None) -> int:
+        return self._due_count(
+            now,
+            effective_proficiency() < 3,
+        )
+
+    def due_review_count(self, now: datetime | None = None) -> int:
+        return self._due_count(
+            now,
+            effective_proficiency() == 3,
+        )
+
+    def _due_count(
+        self,
+        now: datetime | None,
+        *conditions: ColumnElement[bool],
+    ) -> int:
         checked_at = ensure_utc(now or utc_now())
         with self.database.session() as session:
             return int(
@@ -185,6 +156,8 @@ class ReviewService:
                     .join(Word, LearningState.word_id == Word.id)
                     .where(
                         LearningState.next_review_at <= checked_at,
+                        is_not_mastered(),
+                        *conditions,
                         *(
                             (Word.level == self.study_level,)
                             if self.study_level is not None
@@ -217,21 +190,17 @@ class ReviewService:
                     .where(
                         Word.level == self.study_level,
                         LearningState.next_review_at <= checked_at,
+                        effective_proficiency() < 3,
+                        is_not_mastered(),
                     )
                 )
                 or 0
             )
-            has_review = (
-                select(ReviewLog.id)
-                .where(ReviewLog.word_id == LearningState.word_id)
-                .exists()
-            )
             eligible = (
                 Word.level == self.study_level,
                 LearningState.next_review_at > checked_at,
-                LearningState.review_count == 0,
-                LearningState.last_review_at.is_(None),
-                ~has_review,
+                effective_proficiency() < 3,
+                is_not_mastered(),
             )
             total = int(
                 session.scalar(
@@ -290,6 +259,11 @@ class ReviewService:
             state = LearningStateRepository(session).get_for_update(word_id)
             if state is None:
                 raise LookupError(f"No learning state for word_id={word_id}")
+            if session.get(MasteredWord, word_id) is not None:
+                raise ValueError("A mastered word cannot receive formal reviews")
+            acquisition = session.get(WordAcquisitionState, word_id)
+            if acquisition is not None and acquisition.proficiency_level < 3:
+                raise ValueError("Word acquisition must be completed before review")
             if state.last_review_at is not None and review_time <= ensure_utc(
                 state.last_review_at
             ):

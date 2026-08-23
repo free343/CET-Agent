@@ -29,8 +29,12 @@ from app.domain.query_routing import (
     QueryAssessment,
     QueryRoute,
     QueryRoutingPolicy,
+    is_lexical_expansion_question,
 )
-from app.domain.study_help import ground_contextual_memory_answer
+from app.domain.study_help import (
+    build_deterministic_memory_answer,
+    ground_contextual_memory_answer,
+)
 from app.services.analysis_service import ConfusionCluster
 from app.utils.text_utils import stable_json_hash
 
@@ -54,6 +58,16 @@ class AIService:
     def advanced_available(self) -> bool:
         return self.advanced_provider is not None
 
+    @property
+    def local_model_name(self) -> str:
+        return self.local_provider.model
+
+    @property
+    def advanced_model_name(self) -> str | None:
+        if self.advanced_provider is None:
+            return None
+        return self.advanced_provider.model
+
     def route_question(self, question: str) -> QueryAssessment:
         return self.routing_policy.assess(question)
 
@@ -72,6 +86,17 @@ class AIService:
                 confidence=assessment.confidence,
                 model="scope-policy",
             )
+        if not use_advanced:
+            deterministic_memory = build_deterministic_memory_answer(
+                question,
+                context,
+            )
+            if deterministic_memory is not None:
+                return AIAnswer(
+                    text=self._bounded_chat_text(deterministic_memory),
+                    confidence=1.0,
+                    model="deterministic-memory",
+                )
         provider = self.advanced_provider if use_advanced else self.local_provider
         if provider is None:
             return AIAnswer(
@@ -82,9 +107,16 @@ class AIService:
             )
         try:
             generated = provider.generate(
-                chat_messages(question, history, context=context)
+                chat_messages(
+                    question,
+                    history,
+                    context=context,
+                    allow_external_lexical_knowledge=use_advanced,
+                )
             )
             text = ground_contextual_memory_answer(question, context, generated)
+            if use_advanced and is_lexical_expansion_question(question):
+                text = f"高级模型补充（未经过当前词卡人工审核）：\n{text}"
             return AIAnswer(
                 text=self._bounded_chat_text(text),
                 confidence=assessment.confidence,

@@ -15,9 +15,13 @@ from app.ai.factory import (
 )
 from app.bootstrap import initialize_database
 from app.config import settings
+from app.services.acquisition_service import AcquisitionService
 from app.services.ai_service import AIService
 from app.services.analysis_service import AnalysisService
+from app.services.learning_aid_feedback_service import LearningAidFeedbackService
 from app.services.learning_service import LearningService
+from app.services.mastery_service import MasteryService
+from app.services.practice_service import PracticeService
 from app.services.reminder_service import ReminderService
 from app.services.review_service import ReviewService
 from app.services.wordbook_service import WordbookService
@@ -38,6 +42,8 @@ def run(*, smoke_test: bool = False) -> int:
         embedding_provider = create_embedding_provider(settings, database)
         review_service = ReviewService(database, settings.study_level)
         wordbook_service = WordbookService(database)
+        acquisition_service = AcquisitionService(database, settings.study_level)
+        mastery_service = MasteryService(database)
         window = MainWindow(
             LearningService(database, settings.study_level),
             review_service,
@@ -45,7 +51,11 @@ def run(*, smoke_test: bool = False) -> int:
             ai_service,
             ReminderService(review_service, settings),
             wordbook_service,
+            LearningAidFeedbackService(database),
+            PracticeService(database, settings.study_level),
             settings,
+            acquisition_service,
+            mastery_service,
         )
         window.show()
         if smoke_test:

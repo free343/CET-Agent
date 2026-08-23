@@ -22,6 +22,7 @@ _LEARNING_MARKERS = (
     "什么意思",
     "区别",
     "辨析",
+    "混淆",
     "语法",
     "例句",
     "搭配",
@@ -88,6 +89,7 @@ _LANGUAGE_SCOPE_OVERRIDE_MARKERS = (
     "什么意思",
     "区别",
     "辨析",
+    "混淆",
     "语法",
     "例句",
     "搭配",
@@ -130,6 +132,18 @@ _ADVANCED_TASK_MARKERS = (
     "rewrite",
 )
 
+_LEXICAL_EXPANSION_MARKERS = (
+    "近义词",
+    "同义词",
+    "反义词",
+    "相近词",
+    "近义表达",
+    "synonym",
+    "synonyms",
+    "antonym",
+    "antonyms",
+)
+
 
 class QueryRoute(str, Enum):
     LOCAL = "local"
@@ -170,11 +184,17 @@ class QueryRoutingPolicy:
             )
 
         english_tokens = _ENGLISH_TOKEN.findall(normalized)
-        has_learning_context = _contains_any(normalized, _LEARNING_MARKERS)
+        has_lexical_expansion = is_lexical_expansion_question(normalized)
+        has_learning_context = (
+            _contains_any(normalized, _LEARNING_MARKERS) or has_lexical_expansion
+        )
         has_explicit_off_topic = _contains_any(normalized, _OUT_OF_SCOPE_MARKERS)
-        has_language_scope_override = _contains_any(
-            normalized,
-            _LANGUAGE_SCOPE_OVERRIDE_MARKERS,
+        has_language_scope_override = (
+            _contains_any(
+                normalized,
+                _LANGUAGE_SCOPE_OVERRIDE_MARKERS,
+            )
+            or has_lexical_expansion
         )
         looks_like_headword_or_phrase = 1 <= len(english_tokens) <= 3
 
@@ -190,6 +210,13 @@ class QueryRoutingPolicy:
                 QueryRoute.REFUSE,
                 0.86,
                 "没有识别到四六级词汇、基础语法或英语学习意图。",
+            )
+
+        if has_lexical_expansion:
+            return QueryAssessment(
+                QueryRoute.CONFIRM_ADVANCED,
+                0.48,
+                "近义词或反义词扩展需要使用词卡之外的英语词汇知识。",
             )
 
         if len(normalized) > self.max_local_characters:
@@ -228,3 +255,9 @@ def _contains_marker(value: str, marker: str) -> bool:
     if marker.isascii():
         return re.search(rf"(?<![a-z]){re.escape(marker)}(?![a-z])", value) is not None
     return marker in value
+
+
+def is_lexical_expansion_question(question: str) -> bool:
+    """Return whether a question asks for a list beyond one card's facts."""
+
+    return _contains_any(_normalize(question), _LEXICAL_EXPANSION_MARKERS)

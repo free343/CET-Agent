@@ -4,7 +4,13 @@ from datetime import time
 
 import pytest
 
-from app.config import Settings, _env_float, _env_int, _env_time
+from app.config import (
+    Settings,
+    _advanced_llm_api_key,
+    _env_float,
+    _env_int,
+    _env_time,
+)
 
 
 @pytest.mark.parametrize(
@@ -25,7 +31,11 @@ from app.config import Settings, _env_float, _env_int, _env_time
         {"reminder_cooldown_minutes": 0},
         {"study_level": "TOEFL"},
         {"advanced_llm_provider": "unsupported"},
-        {"advanced_llm_provider": "ollama"},
+        {
+            "advanced_llm_provider": "ollama",
+            "advanced_llm_model": "",
+            "advanced_llm_base_url": "",
+        },
         {"llm_provider": "unsupported"},
         {"embedding_provider": "unsupported"},
         {"llm_model": ""},
@@ -50,6 +60,28 @@ def test_settings_repr_never_contains_api_keys() -> None:
 
     assert "local-secret-sentinel" not in value
     assert "advanced-secret-sentinel" not in value
+
+
+def test_official_deepseek_advanced_channel_reuses_deepseek_key(monkeypatch) -> None:
+    monkeypatch.setenv("ADVANCED_LLM_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("ADVANCED_LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.delenv("ADVANCED_LLM_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "shared-secret-sentinel")
+
+    assert _advanced_llm_api_key() == "shared-secret-sentinel"
+
+    monkeypatch.setenv("ADVANCED_LLM_BASE_URL", "https://models.example")
+    assert _advanced_llm_api_key() is None
+
+
+def test_official_deepseek_advanced_channel_requires_a_key() -> None:
+    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
+        Settings(
+            advanced_llm_provider="openai-compatible",
+            advanced_llm_model="deepseek-v4-flash",
+            advanced_llm_base_url="https://api.deepseek.com",
+            advanced_llm_api_key=None,
+        )
 
 
 @pytest.mark.parametrize(

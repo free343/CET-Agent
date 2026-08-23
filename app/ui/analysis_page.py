@@ -153,9 +153,7 @@ class AnalysisPage(QWidget):
             + f"\n答案：{exercise.answer}\n{exercise.explanation}"
         )
         cache_note = "缓存" if result.cached else "新生成"
-        sections.append(
-            f"模型：{result.model} · {cache_note} · 置信度 {result.confidence:.0%}"
-        )
+        sections.append(f"模型：{result.model} · {cache_note}")
         self.ai_output.setPlainText("\n\n".join(sections))
 
     def _show_failure(self, message: str) -> None:

@@ -6,6 +6,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
+from app.ai.schemas import (
+    ClusterAnalysis,
+    ClusterAnalysisResult,
+    Exercise,
+    WordExplanation,
+)
 from app.db.models import RelationType
 from app.services.analysis_service import ConfusionCluster
 from app.ui.analysis_page import ANALYSIS_OUTPUT_MAX_BLOCKS, AnalysisPage
@@ -62,4 +68,40 @@ def test_analysis_output_has_bounded_document_blocks() -> None:
 
     assert page.ai_output.document().blockCount() <= ANALYSIS_OUTPUT_MAX_BLOCKS
     assert "line-0" not in page.ai_output.toPlainText()
+    page.deleteLater()
+
+
+def test_analysis_output_does_not_render_internal_confidence() -> None:
+    _app = QApplication.instance() or QApplication([])
+    page = AnalysisPage(FakeAnalysisService(), object())
+    result = ClusterAnalysisResult(
+        analysis=ClusterAnalysis(
+            summary="总结",
+            confusion_reason="原因",
+            word_explanations=[
+                WordExplanation(
+                    word="adapt",
+                    meaning="适应",
+                    usage="adapt to",
+                    memory_tip="结合例句",
+                    example="We adapt to change.",
+                )
+            ],
+            exercise=Exercise(
+                question="选择正确单词",
+                options=["adapt", "adopt"],
+                answer="adapt",
+                explanation="adapt to 表示适应",
+            ),
+        ),
+        confidence=0.97,
+        model="fake-model",
+    )
+
+    page._show_analysis(result)
+
+    output = page.ai_output.toPlainText()
+    assert "模型：fake-model · 新生成" in output
+    assert "置信度" not in output
+    assert "97%" not in output
     page.deleteLater()

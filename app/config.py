@@ -58,6 +58,21 @@ def _database_url() -> str:
     return raw
 
 
+def _is_official_deepseek_endpoint(base_url: str) -> bool:
+    return (urlsplit(base_url.strip()).hostname or "").casefold() == "api.deepseek.com"
+
+
+def _advanced_llm_api_key() -> str | None:
+    explicit_key = os.getenv("ADVANCED_LLM_API_KEY") or None
+    if explicit_key is not None:
+        return explicit_key
+    provider = os.getenv("ADVANCED_LLM_PROVIDER", "").strip().lower().replace("_", "-")
+    base_url = os.getenv("ADVANCED_LLM_BASE_URL", "")
+    if provider == "openai-compatible" and _is_official_deepseek_endpoint(base_url):
+        return os.getenv("DEEPSEEK_API_KEY") or None
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     database_url: str = _database_url()
@@ -73,7 +88,7 @@ class Settings:
     advanced_llm_model: str = os.getenv("ADVANCED_LLM_MODEL", "").strip()
     advanced_llm_base_url: str = os.getenv("ADVANCED_LLM_BASE_URL", "").strip()
     advanced_llm_api_key: str | None = field(
-        default=os.getenv("ADVANCED_LLM_API_KEY") or None,
+        default_factory=_advanced_llm_api_key,
         repr=False,
     )
     embedding_provider: str = os.getenv("EMBEDDING_PROVIDER", "ollama")
@@ -132,6 +147,15 @@ class Settings:
                 "ADVANCED_LLM",
                 self.advanced_llm_model,
                 self.advanced_llm_base_url,
+            )
+        if (
+            advanced_provider == "openai-compatible"
+            and _is_official_deepseek_endpoint(self.advanced_llm_base_url)
+            and not self.advanced_llm_api_key
+        ):
+            raise ValueError(
+                "Official DeepSeek advanced endpoint requires "
+                "ADVANCED_LLM_API_KEY or DEEPSEEK_API_KEY"
             )
         if not math.isfinite(self.confusion_threshold) or not (
             0.0 <= self.confusion_threshold <= 1.0

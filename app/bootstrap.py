@@ -7,6 +7,7 @@ import shutil
 
 from app.ai.learning_aid_validation import SourceEntry
 from app.config import ENV_FILE, PROJECT_ROOT, RUNTIME_ROOT, Settings, settings
+from app.db.acquisition_seed import ensure_acquisition_states
 from app.db.database import Database
 from app.db.learning_aid_seed import load_learning_aid_records, seed_learning_aids
 from app.db.models import WordLevel
@@ -60,6 +61,7 @@ def initialize_database(app_settings: Settings = settings) -> Database:
                 for rows in (curated_rows, open_rows)
             )
             missing_states = ensure_learning_states(session)
+            missing_acquisition_states = ensure_acquisition_states(session)
             activation = activate_study_level(
                 session,
                 WordLevel(app_settings.study_level),
@@ -69,13 +71,14 @@ def initialize_database(app_settings: Settings = settings) -> Database:
         logger.info(
             "Database initialized; schema_version=%s inserted_words=%s "
             "created_states=%s level=%s newly_activated=%s rebased_words=%s "
-            "learning_aids=%s",
+            "acquisition_states=%s learning_aids=%s",
             schema_version,
             inserted,
             missing_states,
             activation.level.value,
             activation.newly_activated,
             activation.rebased_word_count,
+            missing_acquisition_states,
             aid_written,
         )
         return database

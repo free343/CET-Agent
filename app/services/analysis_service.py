@@ -13,7 +13,7 @@ from sqlalchemy.orm import joinedload
 from app.ai.embedding_provider import EmbeddingProvider, EmbeddingUnavailableError
 from app.config import Settings, settings
 from app.db.database import Database
-from app.db.models import ConfusionEdge, RelationType, ReviewLog, Word
+from app.db.models import ConfusionEdge, MasteredWord, RelationType, ReviewLog, Word
 from app.domain.clustering import cluster_word_ids, select_core_word_ids
 from app.domain.confusion_graph import (
     GraphEdge,
@@ -80,6 +80,11 @@ class AnalysisService:
     def _candidates(self, now: datetime) -> list[CandidateWord]:
         cutoff = now - timedelta(days=self.settings.confusion_window_days)
         with self.database.session() as session:
+            is_mastered = (
+                select(MasteredWord.word_id)
+                .where(MasteredWord.word_id == Word.id)
+                .exists()
+            )
             rows = session.execute(
                 select(
                     Word.id,
@@ -92,6 +97,7 @@ class AnalysisService:
                     ReviewLog.reviewed_at >= cutoff,
                     ReviewLog.reviewed_at <= now,
                     ReviewLog.is_correct.is_(False),
+                    ~is_mastered,
                 )
                 .group_by(Word.id)
                 .having(func.count(ReviewLog.id) >= 2)
@@ -211,12 +217,26 @@ class AnalysisService:
 
     def get_edges(self) -> list[EdgeSummary]:
         with self.database.session() as session:
+            mastered_a = (
+                select(MasteredWord.word_id)
+                .where(MasteredWord.word_id == ConfusionEdge.word_a_id)
+                .exists()
+            )
+            mastered_b = (
+                select(MasteredWord.word_id)
+                .where(MasteredWord.word_id == ConfusionEdge.word_b_id)
+                .exists()
+            )
             edges = session.scalars(
                 select(ConfusionEdge)
                 .options(
                     joinedload(ConfusionEdge.word_a), joinedload(ConfusionEdge.word_b)
                 )
-                .where(ConfusionEdge.total_score >= self.settings.confusion_threshold)
+                .where(
+                    ConfusionEdge.total_score >= self.settings.confusion_threshold,
+                    ~mastered_a,
+                    ~mastered_b,
+                )
                 .order_by(ConfusionEdge.total_score.desc())
             ).all()
             return [
@@ -233,9 +253,21 @@ class AnalysisService:
         checked_at = ensure_utc(now or utc_now())
         cutoff = checked_at - timedelta(days=self.settings.confusion_window_days)
         with self.database.session() as session:
+            mastered_a = (
+                select(MasteredWord.word_id)
+                .where(MasteredWord.word_id == ConfusionEdge.word_a_id)
+                .exists()
+            )
+            mastered_b = (
+                select(MasteredWord.word_id)
+                .where(MasteredWord.word_id == ConfusionEdge.word_b_id)
+                .exists()
+            )
             edges = session.scalars(
                 select(ConfusionEdge).where(
-                    ConfusionEdge.total_score >= self.settings.confusion_threshold
+                    ConfusionEdge.total_score >= self.settings.confusion_threshold,
+                    ~mastered_a,
+                    ~mastered_b,
                 )
             ).all()
             graph_edges = [

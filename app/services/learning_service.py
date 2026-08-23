@@ -9,6 +9,7 @@ from sqlalchemy import case, func, select
 
 from app.db.database import Database
 from app.db.models import LearningState, ReviewLog, Word, WordLevel
+from app.services.study_eligibility import effective_proficiency, is_not_mastered
 from app.utils.datetime_utils import ensure_utc, utc_now
 
 
@@ -25,6 +26,9 @@ class DashboardStats:
     seven_day_accuracy: float
     learning_streak: int
     high_frequency_wrong: tuple[WrongWordStat, ...]
+    new_count: int = 0
+    future_review_count: int = 0
+    latest_future_review_at: datetime | None = None
 
 
 def _local_day_bounds_utc(now: datetime) -> tuple[datetime, datetime]:
@@ -51,14 +55,44 @@ class LearningService:
         )
 
         with self.database.session() as session:
+            new_count = int(
+                session.scalar(
+                    select(func.count(LearningState.id))
+                    .join(Word, LearningState.word_id == Word.id)
+                    .where(
+                        LearningState.next_review_at <= checked_at,
+                        effective_proficiency() < 3,
+                        is_not_mastered(),
+                        *level_filter,
+                    )
+                )
+                or 0
+            )
             due_count = int(
                 session.scalar(
                     select(func.count(LearningState.id))
                     .join(Word, LearningState.word_id == Word.id)
-                    .where(LearningState.next_review_at <= checked_at, *level_filter)
+                    .where(
+                        LearningState.next_review_at <= checked_at,
+                        effective_proficiency() == 3,
+                        is_not_mastered(),
+                        *level_filter,
+                    )
                 )
                 or 0
             )
+            future_review_count, latest_future_review_at = session.execute(
+                select(
+                    func.count(ReviewLog.id),
+                    func.max(ReviewLog.reviewed_at),
+                )
+                .join(Word, ReviewLog.word_id == Word.id)
+                .where(
+                    ReviewLog.reviewed_at > checked_at + timedelta(minutes=5),
+                    ReviewLog.question_type != "demo_confusion",
+                    *level_filter,
+                )
+            ).one()
             today_completed = int(
                 session.scalar(
                     select(func.count(ReviewLog.id))
@@ -105,10 +139,12 @@ class LearningService:
             wrong_rows = session.execute(
                 select(Word.word, func.count(ReviewLog.id).label("errors"))
                 .join(ReviewLog, ReviewLog.word_id == Word.id)
+                .join(LearningState, LearningState.word_id == Word.id)
                 .where(
                     ReviewLog.reviewed_at >= thirty_days_ago,
                     ReviewLog.reviewed_at <= checked_at,
                     ReviewLog.is_correct.is_(False),
+                    is_not_mastered(),
                     *level_filter,
                 )
                 .group_by(Word.id)
@@ -124,5 +160,12 @@ class LearningService:
             high_frequency_wrong=tuple(
                 WrongWordStat(word=row.word, error_count=int(row.errors))
                 for row in wrong_rows
+            ),
+            new_count=new_count,
+            future_review_count=int(future_review_count or 0),
+            latest_future_review_at=(
+                ensure_utc(latest_future_review_at)
+                if latest_future_review_at is not None
+                else None
             ),
         )

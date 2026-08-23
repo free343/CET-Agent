@@ -155,6 +155,52 @@ def test_review_queue_and_count_are_filtered_by_study_level(database, word_id) -
     assert ReviewService(database).due_count(NOW) == 2
 
 
+def test_new_and_due_review_queues_are_disjoint(database, word_id) -> None:
+    with database.session() as session:
+        learned_due = Word(
+            word="reviewdue",
+            meaning="到期复习词",
+            level=WordLevel.CET4,
+            frequency=90,
+        )
+        learned_due.learning_state = LearningState(
+            next_review_at=NOW - timedelta(hours=1),
+            last_review_at=NOW - timedelta(days=2),
+            review_count=1,
+            correct_count=1,
+            fsrs_state=2,
+            fsrs_step=None,
+        )
+        learned_future = Word(
+            word="reviewfuture",
+            meaning="未来复习词",
+            level=WordLevel.CET4,
+            frequency=80,
+        )
+        learned_future.learning_state = LearningState(
+            next_review_at=NOW + timedelta(days=1),
+            last_review_at=NOW - timedelta(days=1),
+            review_count=1,
+            correct_count=1,
+            fsrs_state=2,
+            fsrs_step=None,
+        )
+        session.add_all((learned_due, learned_future))
+
+    service = ReviewService(database, WordLevel.CET4)
+
+    assert [item.word for item in service.get_new_words(now=NOW)] == ["adapt"]
+    assert [item.word for item in service.get_due_review_words(now=NOW)] == [
+        "reviewdue"
+    ]
+    assert service.new_count(NOW) == 1
+    assert service.due_review_count(NOW) == 1
+    assert {item.word for item in service.get_due_words(now=NOW)} == {
+        "adapt",
+        "reviewdue",
+    }
+
+
 def test_due_word_includes_four_deterministic_meaning_options(
     database, word_id
 ) -> None:
@@ -243,6 +289,34 @@ def test_extra_study_preserves_newly_due_priority(database, word_id) -> None:
     assert result.unlocked_count == 0
     assert result.remaining_count == 1
     assert result.due_count == 1
+
+
+def test_extra_new_words_are_not_blocked_by_the_separate_review_route(
+    database,
+    word_id,
+) -> None:
+    with database.session() as session:
+        learned_state = session.scalar(
+            select(LearningState).where(LearningState.word_id == word_id)
+        )
+        assert learned_state is not None
+        learned_state.review_count = 1
+        learned_state.correct_count = 1
+        learned_state.last_review_at = NOW - timedelta(days=2)
+        learned_state.fsrs_state = 2
+        learned_state.fsrs_step = None
+        future = Word(word="separatefuture", meaning="未来新词", level=WordLevel.CET4)
+        future.learning_state = LearningState(next_review_at=NOW + timedelta(days=1))
+        session.add(future)
+
+    result = ReviewService(database, WordLevel.CET4).unlock_extra_words(5, NOW)
+
+    assert result.due_count == 0
+    assert result.unlocked_count == 1
+    assert [
+        item.word
+        for item in ReviewService(database, WordLevel.CET4).get_new_words(now=NOW)
+    ] == ["separatefuture"]
 
 
 def test_extra_study_rejects_nonpositive_limit(database) -> None:

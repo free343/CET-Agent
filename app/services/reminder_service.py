@@ -69,7 +69,7 @@ class ReminderService:
         claim_notification: bool,
     ) -> ReminderStatus:
         checked_at = ensure_utc(now or self._clock())
-        due_count = self.review_service.due_count(checked_at)
+        due_count = self.review_service.due_review_count(checked_at)
         local_date = checked_at.astimezone().date()
         with self.review_service.database.session() as session:
             self.review_service.database.begin_serialized_write(session)
@@ -168,7 +168,7 @@ class ReminderService:
         self._sync_from_state(state, local_date)
 
     def remaining_due_count(self, now: datetime | None = None) -> int:
-        return self.review_service.due_count(ensure_utc(now or self._clock()))
+        return self.review_service.due_review_count(ensure_utc(now or self._clock()))
 
     def _load_persisted_state(self) -> None:
         with self.review_service.database.session() as session:

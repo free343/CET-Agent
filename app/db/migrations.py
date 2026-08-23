@@ -7,11 +7,16 @@ from collections.abc import Callable, Mapping
 from sqlalchemy import Connection, Engine, inspect, text
 
 from app.db.models import (
+    AcquisitionAttempt,
     Base,
     FavoriteWord,
+    MasteredWord,
+    PracticeLog,
     ReminderReviewLease,
     StudyLevelActivation,
+    WordAcquisitionState,
     WordLearningAid,
+    WordLearningAidFeedback,
 )
 
 Migration = Callable[[Connection], None]
@@ -175,6 +180,20 @@ def _add_word_learning_aids(connection: Connection) -> None:
     WordLearningAid.__table__.create(bind=connection, checkfirst=True)
 
 
+def _add_word_learning_aid_feedback(connection: Connection) -> None:
+    WordLearningAidFeedback.__table__.create(bind=connection, checkfirst=True)
+
+
+def _add_practice_logs(connection: Connection) -> None:
+    PracticeLog.__table__.create(bind=connection, checkfirst=True)
+
+
+def _add_acquisition_and_mastery_state(connection: Connection) -> None:
+    WordAcquisitionState.__table__.create(bind=connection, checkfirst=True)
+    AcquisitionAttempt.__table__.create(bind=connection, checkfirst=True)
+    MasteredWord.__table__.create(bind=connection, checkfirst=True)
+
+
 MIGRATIONS: dict[int, Migration] = {
     1: _create_initial_schema,
     2: _add_fsrs_card_state,
@@ -184,6 +203,9 @@ MIGRATIONS: dict[int, Migration] = {
     6: _add_review_undo_snapshots,
     7: _add_favorite_wordbook,
     8: _add_word_learning_aids,
+    9: _add_word_learning_aid_feedback,
+    10: _add_practice_logs,
+    11: _add_acquisition_and_mastery_state,
 }
 CURRENT_SCHEMA_VERSION = max(MIGRATIONS)
 

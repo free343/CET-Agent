@@ -13,7 +13,11 @@ from PySide6.QtWidgets import QApplication, QMainWindow
 from app.domain.reminder_policy import ReminderDecision
 from app.services.reminder_service import ReminderStatus
 from app.ui.main_window import (
+    DEFAULT_WINDOW_HEIGHT,
+    DEFAULT_WINDOW_WIDTH,
     MAX_QT_TIMER_INTERVAL_MS,
+    MINIMUM_WINDOW_HEIGHT,
+    MINIMUM_WINDOW_WIDTH,
     MainWindow,
     reminder_wakeup_delay_ms,
 )
@@ -21,6 +25,11 @@ from app.ui.widgets.reminder_banner import ReminderBanner
 from app.utils.datetime_utils import UTC
 
 NOW = datetime(2026, 8, 21, 12, tzinfo=UTC)
+
+
+def test_default_window_geometry_leaves_room_for_study_assistant() -> None:
+    assert (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT) == (1280, 760)
+    assert (MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT) == (960, 620)
 
 
 class ReminderQueueHarness(QMainWindow):
@@ -114,22 +123,34 @@ def test_hidden_review_worker_cannot_republish_active_lease() -> None:
     window_like.reminder_banner.deleteLater()
 
 
-def test_active_workers_include_dashboard_and_review_tasks() -> None:
+def test_active_workers_include_dashboard_and_all_study_route_tasks() -> None:
     class FakeWorker:
         @staticmethod
         def isRunning() -> bool:
             return True
 
     dashboard_worker = FakeWorker()
+    learning_worker = FakeWorker()
     review_worker = FakeWorker()
     assistant_worker = FakeWorker()
+    practice_worker = FakeWorker()
+    practice_assistant_worker = FakeWorker()
     wordbook_worker = FakeWorker()
+    learning_page = SimpleNamespace(worker=learning_worker, assistant_panel=None)
+    review_page = SimpleNamespace(
+        worker=review_worker,
+        assistant_panel=SimpleNamespace(worker=assistant_worker),
+    )
+    practice_page = SimpleNamespace(
+        worker=practice_worker,
+        assistant_panel=SimpleNamespace(worker=practice_assistant_worker),
+    )
     window_like = SimpleNamespace(
         dashboard_page=SimpleNamespace(worker=dashboard_worker),
-        review_page=SimpleNamespace(
-            worker=review_worker,
-            assistant_panel=SimpleNamespace(worker=assistant_worker),
-        ),
+        learning_page=learning_page,
+        review_page=review_page,
+        practice_page=practice_page,
+        study_pages=(learning_page, review_page, practice_page),
         analysis_page=SimpleNamespace(worker=None),
         wordbook_page=SimpleNamespace(worker=wordbook_worker),
         chat_page=SimpleNamespace(worker=None),
@@ -138,8 +159,11 @@ def test_active_workers_include_dashboard_and_review_tasks() -> None:
 
     assert MainWindow._active_workers(window_like) == [
         dashboard_worker,
+        learning_worker,
         review_worker,
         assistant_worker,
+        practice_worker,
+        practice_assistant_worker,
         wordbook_worker,
     ]
 

@@ -74,6 +74,26 @@ def test_contextual_example_question_keeps_example_specific_instructions() -> No
     assert "替换练习：" in prompt
 
 
+def test_contextual_distinction_question_uses_grounded_usage_boundaries() -> None:
+    messages = chat_messages(
+        "请根据当前词卡辨析这个词的核心用法、常见搭配和容易误用的边界。",
+        context=(
+            "word=adapt\n"
+            "meaning=适应；改编\n"
+            "example=Students adapt quickly.\n"
+            "collocations=adapt to｜适应\n"
+            "word_family=adaptable (adj.)｜适应性强的"
+        ),
+    )
+
+    prompt = messages[-1]["content"]
+    assert "TASK: WORD_USAGE_DISTINCTION" in prompt
+    assert "核心用法：" in prompt
+    assert "易误用边界：" in prompt
+    assert "不得自行添加具体对比词" in prompt
+    assert "collocations=adapt to｜适应" in prompt
+
+
 def test_memory_prompt_defines_a_safe_empty_example_fallback() -> None:
     messages = chat_messages(
         "government 怎么记？",
