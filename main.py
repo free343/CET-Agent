@@ -41,9 +41,18 @@ def run(*, smoke_test: bool = False) -> int:
         advanced_provider = create_advanced_llm_provider(settings)
         ai_service = AIService(database, llm_provider, advanced_provider)
         embedding_provider = create_embedding_provider(settings, database)
-        review_service = ReviewService(database, settings.study_level)
+        review_service = ReviewService(
+            database,
+            settings.study_level,
+            extra_study_limit=settings.extra_new_word_count,
+        )
         wordbook_service = WordbookService(database)
-        acquisition_service = AcquisitionService(database, settings.study_level)
+        acquisition_service = AcquisitionService(
+            database,
+            settings.study_level,
+            group_size=settings.new_word_group_size,
+            extra_study_limit=settings.extra_new_word_count,
+        )
         mastery_service = MasteryService(database)
         window = MainWindow(
             LearningService(database, settings.study_level),

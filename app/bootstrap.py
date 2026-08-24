@@ -91,6 +91,7 @@ def initialize_database(app_settings: Settings = settings) -> Database:
                 session,
                 WordLevel(app_settings.study_level),
                 open_rows,
+                daily_new_word_limit=app_settings.daily_new_word_limit,
             )
             aid_written = seed_learning_aids(session, aid_records)
             lexical_fact_written = seed_lexical_facts(session, lexical_fact_records)

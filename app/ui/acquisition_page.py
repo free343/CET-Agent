@@ -45,8 +45,6 @@ logger = logging.getLogger(__name__)
 class AcquisitionPage(QWidget):
     """Round-robin new-word learning; formal FSRS remains in ReviewPage."""
 
-    GROUP_SIZE = 10
-
     def __init__(
         self,
         service: AcquisitionService,
@@ -60,6 +58,8 @@ class AcquisitionPage(QWidget):
     ) -> None:
         super().__init__()
         self.service = service
+        self.group_size = service.group_size
+        self.extra_new_word_count = service.extra_study_limit
         self.on_changed = on_changed
         self.on_session_state_changed = on_session_state_changed
         self.wordbook_service = wordbook_service
@@ -128,6 +128,7 @@ class AcquisitionPage(QWidget):
         self.self_confirm_button = self.card.self_confirm_button
         self.reveal_button = self.card.reveal_button
         self.continue_button = self.card.continue_button
+        self.continue_button.setText(f"继续学习 {self.extra_new_word_count} 个新词")
         self.rating_buttons = self.card.rating_buttons
         self.undo_button = self.card.undo_button
         self._hide_formal_controls()
@@ -196,7 +197,7 @@ class AcquisitionPage(QWidget):
         self._show_loading("正在加载待学新词…")
         self.worker_action = "load"
         self.worker = AsyncWorker(
-            partial(self.service.get_group, self.GROUP_SIZE),
+            self.service.get_group,
             parent=self,
         )
         self.worker.result_ready.connect(self._queue_loaded)
@@ -473,7 +474,7 @@ class AcquisitionPage(QWidget):
             self._check_completion_after_worker = True
 
     def continue_learning(self) -> None:
-        """Start the next released group or explicitly unlock five cards."""
+        """Start the next released group or explicitly unlock the configured pack."""
 
         if self.worker is not None or self.current is not None:
             return
@@ -517,7 +518,6 @@ class AcquisitionPage(QWidget):
         self.worker_action = "unlock"
         self.worker = AsyncWorker(
             self.service.unlock_extra_words,
-            5,
             parent=self,
         )
         self.worker.result_ready.connect(self._extra_words_unlocked)
@@ -551,7 +551,9 @@ class AcquisitionPage(QWidget):
         self.card.hide_learning_aids()
         self.reveal_button.hide()
         self.continue_button.setText(
-            "开始下一组新词" if self._released_group_available else "继续学习 5 个新词"
+            "开始下一组新词"
+            if self._released_group_available
+            else f"继续学习 {self.extra_new_word_count} 个新词"
         )
         self.continue_button.setEnabled(self.worker is None)
         self.continue_button.show()

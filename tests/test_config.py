@@ -29,6 +29,9 @@ from app.config import (
         },
         {"reminder_start_time": time(23, 0), "reminder_end_time": time(8, 0)},
         {"reminder_cooldown_minutes": 0},
+        {"daily_new_word_limit": 0},
+        {"new_word_group_size": 51},
+        {"extra_new_word_count": 0},
         {"study_level": "TOEFL"},
         {"advanced_llm_provider": "unsupported"},
         {

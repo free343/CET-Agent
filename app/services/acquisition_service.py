@@ -55,17 +55,29 @@ class AcquisitionService:
         self,
         database: Database,
         study_level: WordLevel | str | None = None,
+        *,
+        group_size: int = DEFAULT_ACQUISITION_GROUP_SIZE,
+        extra_study_limit: int = 5,
     ) -> None:
         self.database = database
         self.study_level = WordLevel(study_level) if study_level is not None else None
-        self.review_service = ReviewService(database, self.study_level)
+        if not 1 <= int(group_size) <= 50:
+            raise ValueError("group_size must be between 1 and 50")
+        self.group_size = int(group_size)
+        self.review_service = ReviewService(
+            database,
+            self.study_level,
+            extra_study_limit=extra_study_limit,
+        )
+        self.extra_study_limit = self.review_service.extra_study_limit
 
     def get_group(
         self,
-        limit: int = DEFAULT_ACQUISITION_GROUP_SIZE,
+        limit: int | None = None,
         now: datetime | None = None,
     ) -> list[ReviewItem]:
-        safe_limit = max(1, min(int(limit), 50))
+        requested_limit = self.group_size if limit is None else int(limit)
+        safe_limit = max(1, min(requested_limit, 50))
         return self.review_service.get_new_words(safe_limit, now)
 
     def remaining_count(self, now: datetime | None = None) -> int:
@@ -79,10 +91,11 @@ class AcquisitionService:
 
     def unlock_extra_words(
         self,
-        limit: int = 5,
+        limit: int | None = None,
         now: datetime | None = None,
     ) -> ExtraStudyResult:
-        return self.review_service.unlock_extra_words(limit, now)
+        requested_limit = self.extra_study_limit if limit is None else int(limit)
+        return self.review_service.unlock_extra_words(requested_limit, now)
 
     def record_attempt(
         self,

@@ -104,6 +104,7 @@ class ReviewPage(QWidget):
     ) -> None:
         super().__init__()
         self.service = service
+        self.extra_new_word_count = getattr(service, "extra_study_limit", 5)
         self.session_mode = StudySessionMode(session_mode)
         self.practice_service = practice_service
         self.practice_scope = PracticeScope(practice_scope)
@@ -220,6 +221,7 @@ class ReviewPage(QWidget):
         self._hide_learning_aids = card.hide_learning_aids
         self.reveal_button = card.reveal_button
         self.continue_button = card.continue_button
+        self.continue_button.setText(f"继续学习 {self.extra_new_word_count} 个新词")
         self.undo_button = card.undo_button
         self.rating_buttons = card.rating_buttons
         if self.session_mode is StudySessionMode.PRACTICE:
@@ -396,7 +398,9 @@ class ReviewPage(QWidget):
                 StudySessionMode.COMBINED,
                 StudySessionMode.LEARN,
             }:
-                self.continue_button.setText("继续学习 5 个新词")
+                self.continue_button.setText(
+                    f"继续学习 {self.extra_new_word_count} 个新词"
+                )
                 self.continue_button.setEnabled(True)
                 self.continue_button.show()
             else:
@@ -714,7 +718,7 @@ class ReviewPage(QWidget):
         if self.on_session_state_changed:
             self.on_session_state_changed(True)
         self.worker_action = "unlock"
-        self.worker = AsyncWorker(self.service.unlock_extra_words, 5, parent=self)
+        self.worker = AsyncWorker(self.service.unlock_extra_words, parent=self)
         self.worker.result_ready.connect(self._extra_words_unlocked)
         self.worker.failed.connect(self._task_failed)
         self.worker.finished.connect(self._worker_finished)
@@ -907,7 +911,7 @@ class ReviewPage(QWidget):
             return
         if self.worker_action == "unlock":
             logger.error("Could not unlock extra study: %s", message)
-            self.continue_button.setText("继续学习 5 个新词")
+            self.continue_button.setText(f"继续学习 {self.extra_new_word_count} 个新词")
             self.continue_button.setEnabled(True)
             if self.on_session_state_changed:
                 self.on_session_state_changed(False)
@@ -1125,7 +1129,7 @@ class ReviewPage(QWidget):
             ),
             StudySessionMode.LEARN: (
                 "当前待学新词已完成",
-                f"{summary} 可以继续解锁 5 个新词，或转到到期复习。",
+                f"{summary} 可以继续解锁 {self.extra_new_word_count} 个新词，或转到到期复习。",
             ),
             StudySessionMode.REVIEW: (
                 "当前没有到期复习",

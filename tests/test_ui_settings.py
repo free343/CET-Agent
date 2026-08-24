@@ -32,6 +32,9 @@ def test_settings_page_exposes_deepseek_channel_without_rendering_secret() -> No
     assert "ADVANCED_LLM_PROVIDER=openai-compatible" in rendered
     assert str(ENV_FILE) in rendered
     assert "已配置（内容已隐藏）" in rendered
+    assert "每日新词释放" in rendered
+    assert "新词学习组大小" in rendered
+    assert "主动加练包大小" in rendered
     assert secret not in rendered
     page.resize(520, 420)
     page.show()

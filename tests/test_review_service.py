@@ -15,6 +15,18 @@ from app.utils.datetime_utils import UTC
 NOW = datetime(2026, 8, 21, 12, tzinfo=UTC)
 
 
+def test_workload_defaults_are_overridable_without_touching_review_state(
+    database,
+) -> None:
+    service = ReviewService(
+        database,
+        WordLevel.CET4,
+        extra_study_limit=3,
+    )
+
+    assert service.extra_study_limit == 3
+
+
 def test_submit_review_updates_state_and_creates_log(database, word_id) -> None:
     service = ReviewService(database)
     before = service.get_due_words(now=NOW)

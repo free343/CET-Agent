@@ -71,6 +71,9 @@ class SettingsPage(QWidget):
         form.addRow("Embedding 地址", QLabel(settings.embedding_base_url))
         form.addRow("Embedding 模型", QLabel(settings.embedding_model))
         form.addRow("混淆阈值", QLabel(f"{settings.confusion_threshold:.2f}"))
+        form.addRow("每日新词释放", QLabel(f"{settings.daily_new_word_limit} 个"))
+        form.addRow("新词学习组大小", QLabel(f"{settings.new_word_group_size} 个"))
+        form.addRow("主动加练包大小", QLabel(f"{settings.extra_new_word_count} 个"))
         form.addRow(
             "提醒时段",
             QLabel(
@@ -79,6 +82,15 @@ class SettingsPage(QWidget):
             ),
         )
         layout.addWidget(card)
+
+        workload_note = QLabel(
+            "学习负载设置只影响尚未开始的工作：每日释放值仅在某个 CET 等级首次启用时"
+            "用于排期；组大小和主动加练包大小用于后续批次。已复习、已毕业、收藏和"
+            "完全掌握状态不会被设置项重新排序或重置。修改 .env 后需重启应用。"
+        )
+        workload_note.setWordWrap(True)
+        workload_note.setObjectName("SettingsWorkloadNote")
+        layout.addWidget(workload_note)
 
         advanced_card = QFrame()
         advanced_card.setObjectName("Card")

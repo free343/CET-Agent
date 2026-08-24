@@ -115,6 +115,9 @@ class Settings:
         default_factory=lambda: _env_time("REMINDER_END_TIME", "23:00")
     )
     reminder_cooldown_minutes: int = _env_int("REMINDER_COOLDOWN_MINUTES", 30)
+    daily_new_word_limit: int = _env_int("DAILY_NEW_WORD_LIMIT", 20)
+    new_word_group_size: int = _env_int("NEW_WORD_GROUP_SIZE", 10)
+    extra_new_word_count: int = _env_int("EXTRA_NEW_WORD_COUNT", 5)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
     def __post_init__(self) -> None:
@@ -186,6 +189,12 @@ class Settings:
             )
         if self.reminder_cooldown_minutes <= 0:
             raise ValueError("REMINDER_COOLDOWN_MINUTES must be greater than 0")
+        if not 1 <= self.daily_new_word_limit <= 100:
+            raise ValueError("DAILY_NEW_WORD_LIMIT must be between 1 and 100")
+        if not 1 <= self.new_word_group_size <= 50:
+            raise ValueError("NEW_WORD_GROUP_SIZE must be between 1 and 50")
+        if not 1 <= self.extra_new_word_count <= 50:
+            raise ValueError("EXTRA_NEW_WORD_COUNT must be between 1 and 50")
 
 
 def _validate_model_endpoint(prefix: str, model: str, base_url: str) -> None:

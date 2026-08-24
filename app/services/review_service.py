@@ -55,10 +55,17 @@ class ExtraStudyResult:
 
 class ReviewService:
     def __init__(
-        self, database: Database, study_level: WordLevel | str | None = None
+        self,
+        database: Database,
+        study_level: WordLevel | str | None = None,
+        *,
+        extra_study_limit: int = 5,
     ) -> None:
         self.database = database
         self.study_level = WordLevel(study_level) if study_level is not None else None
+        if not 1 <= int(extra_study_limit) <= 50:
+            raise ValueError("extra_study_limit must be between 1 and 50")
+        self.extra_study_limit = int(extra_study_limit)
 
     def get_due_words(
         self, limit: int = 30, now: datetime | None = None
@@ -170,17 +177,18 @@ class ReviewService:
 
     def unlock_extra_words(
         self,
-        limit: int = 5,
+        limit: int | None = None,
         now: datetime | None = None,
     ) -> ExtraStudyResult:
         """Make a small explicit pack of untouched future cards due now."""
 
         if self.study_level is None:
             raise ValueError("Extra study requires a selected CET level")
-        if limit <= 0:
+        requested_limit = self.extra_study_limit if limit is None else int(limit)
+        if requested_limit <= 0:
             raise ValueError("Extra study limit must be positive")
         checked_at = ensure_utc(now or utc_now())
-        safe_limit = min(int(limit), 50)
+        safe_limit = min(requested_limit, 50)
         with self.database.session() as session:
             self.database.begin_serialized_write(session)
             due_count = int(

@@ -145,3 +145,44 @@ def test_level_with_review_history_is_adopted_without_rebasing(database) -> None
         assert untouched is not None and untouched.learning_state is not None
         assert untouched.learning_state.next_review_at == untouched_due
         assert session.scalar(select(func.count(StudyLevelActivation.level))) == 1
+
+
+def test_explicit_daily_limit_rebases_in_frequency_order(database) -> None:
+    open_rows = (
+        VocabularySeedRow(
+            word="beta",
+            phonetic="",
+            meaning="beta",
+            example="",
+            level=WordLevel.CET6,
+            frequency=10,
+            initial_delay_days=0,
+        ),
+        VocabularySeedRow(
+            word="alpha",
+            phonetic="",
+            meaning="alpha",
+            example="",
+            level=WordLevel.CET6,
+            frequency=20,
+            initial_delay_days=0,
+        ),
+    )
+    with database.session() as session:
+        _add_word(session, "alpha", WordLevel.CET6)
+        _add_word(session, "beta", WordLevel.CET6)
+        activate_study_level(
+            session,
+            WordLevel.CET6,
+            open_rows,
+            activated_at=NOW,
+            daily_new_word_limit=1,
+        )
+
+    with database.session() as session:
+        alpha = session.scalar(select(Word).where(Word.word == "alpha"))
+        beta = session.scalar(select(Word).where(Word.word == "beta"))
+        assert alpha is not None and alpha.learning_state is not None
+        assert beta is not None and beta.learning_state is not None
+        assert alpha.learning_state.next_review_at == NOW
+        assert beta.learning_state.next_review_at == NOW + timedelta(days=1)

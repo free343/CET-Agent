@@ -35,6 +35,7 @@ def activate_study_level(
     open_vocabulary: Sequence[VocabularySeedRow],
     *,
     activated_at: datetime | None = None,
+    daily_new_word_limit: int | None = None,
 ) -> LevelActivationResult:
     """Activate a level once without moving cards that have learning history.
 
@@ -53,11 +54,17 @@ def activate_study_level(
             rebased_word_count=0,
         )
 
-    release_delays = {
-        row.word: row.initial_delay_days
-        for row in open_vocabulary
-        if row.level is selected_level
-    }
+    level_rows = [row for row in open_vocabulary if row.level is selected_level]
+    if daily_new_word_limit is not None:
+        if not 1 <= int(daily_new_word_limit) <= 100:
+            raise ValueError("daily_new_word_limit must be between 1 and 100")
+        daily_limit = int(daily_new_word_limit)
+        level_rows.sort(key=lambda row: (-row.frequency, row.word))
+        release_delays = {
+            row.word: index // daily_limit for index, row in enumerate(level_rows)
+        }
+    else:
+        release_delays = {row.word: row.initial_delay_days for row in level_rows}
     earliest_review = session.scalar(
         select(func.min(ReviewLog.reviewed_at))
         .join(Word, ReviewLog.word_id == Word.id)
