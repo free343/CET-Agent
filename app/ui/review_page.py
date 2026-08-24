@@ -7,7 +7,6 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
-from enum import Enum
 from functools import partial
 
 from PySide6.QtCore import Qt
@@ -25,7 +24,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.db.models import LearningAidIssueType
 from app.domain.fsrs_scheduler import Rating
 from app.services.learning_aid_feedback_service import (
     LearningAidFeedbackService,
@@ -53,37 +51,17 @@ from app.ui.chat_page import (
     ChatPanel,
     ChatService,
 )
+from app.ui.session_summary import format_review_summary
+from app.ui.study_session_config import (
+    LEARNING_AID_ISSUE_CHOICES,
+    PRACTICE_SCOPE_LABELS,
+    RATING_SHORTCUT_GUARD_SECONDS,
+    StudySessionMode,
+)
 from app.ui.widgets.async_worker import AsyncWorker
 from app.ui.widgets.review_card import ReviewCardWidget
 
 logger = logging.getLogger(__name__)
-
-RATING_SHORTCUT_GUARD_SECONDS = 0.45
-LEARNING_AID_ISSUE_CHOICES: tuple[tuple[str, LearningAidIssueType], ...] = (
-    ("例句不自然", LearningAidIssueType.EXAMPLE_UNNATURAL),
-    ("例句与释义不匹配", LearningAidIssueType.MEANING_MISMATCH),
-    ("中文翻译不准确", LearningAidIssueType.TRANSLATION_INACCURATE),
-    ("固定搭配不常用", LearningAidIssueType.COLLOCATION_UNCOMMON),
-    ("同族或派生词关系错误", LearningAidIssueType.WORD_FAMILY_INCORRECT),
-    ("其他问题", LearningAidIssueType.OTHER),
-)
-
-
-class StudySessionMode(str, Enum):
-    """The explicit learning intent behind a shared card workflow."""
-
-    COMBINED = "COMBINED"
-    LEARN = "LEARN"
-    REVIEW = "REVIEW"
-    PRACTICE = "PRACTICE"
-
-
-PRACTICE_SCOPE_LABELS: tuple[tuple[str, PracticeScope], ...] = (
-    ("昨天学过", PracticeScope.YESTERDAY),
-    ("最近学习", PracticeScope.RECENT),
-    ("历史错词", PracticeScope.WRONG),
-    ("收藏单词", PracticeScope.FAVORITES),
-)
 
 
 class ReviewPage(QWidget):
@@ -1142,23 +1120,12 @@ class ReviewPage(QWidget):
         }[self.session_mode]
 
     def _session_summary(self) -> str:
-        if self._session_completed <= 0:
-            return "本轮没有完成单词。"
-        if self.session_mode is StudySessionMode.PRACTICE:
-            return (
-                f"本轮完成 {self._session_completed} 个：想起 "
-                f"{self._session_correct}，没想起 {self._session_wrong}。"
-            )
-        next_due = min(self._session_review_due_times, default=None)
-        due_text = (
-            next_due.astimezone().strftime("%m-%d %H:%M")
-            if next_due is not None
-            else "稍后"
-        )
-        return (
-            f"本轮完成 {self._session_completed} 个：答对 "
-            f"{self._session_correct}，需加强 {self._session_wrong}；"
-            f"最早复习 {due_text}。"
+        return format_review_summary(
+            self._session_completed,
+            self._session_correct,
+            self._session_wrong,
+            self._session_review_due_times,
+            practice=self.session_mode is StudySessionMode.PRACTICE,
         )
 
     def _empty_progress_text(self) -> str:

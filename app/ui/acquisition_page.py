@@ -36,6 +36,7 @@ from app.ui.chat_page import (
     ChatPanel,
     ChatService,
 )
+from app.ui.session_summary import format_acquisition_summary
 from app.ui.widgets.async_worker import AsyncWorker
 from app.ui.widgets.review_card import ReviewCardWidget
 
@@ -560,25 +561,13 @@ class AcquisitionPage(QWidget):
         self.progress.setText(f"本轮完成 {self._session_completed} 个")
 
     def _session_summary(self) -> str:
-        if self._session_attempts <= 0:
-            return "本轮尚未记录学习尝试。"
-        stage_parts = []
-        for stage in (0, 1, 2):
-            attempts = self._session_stage_attempts.get(stage, 0)
-            if attempts:
-                stage_parts.append(
-                    f"阶段{stage} {attempts}次/{self._session_stage_mistakes.get(stage, 0)}错"
-                )
-        first_due = (
-            self._session_first_review_at.astimezone().strftime("%m-%d %H:%M")
-            if self._session_first_review_at is not None
-            else "暂无"
-        )
-        stages = "，".join(stage_parts) if stage_parts else "暂无阶段明细"
-        return (
-            f"本轮尝试 {self._session_attempts} 次，错误 {self._session_mistakes} 次"
-            f"（{stages}）；新毕业 {self._session_completed} 个，"
-            f"首个正式复习 {first_due}。"
+        return format_acquisition_summary(
+            self._session_attempts,
+            self._session_mistakes,
+            self._session_completed,
+            self._session_stage_attempts,
+            self._session_stage_mistakes,
+            self._session_first_review_at,
         )
 
     def _show_loading(self, text: str) -> None:
