@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import QLocale
+from PySide6.QtCore import QLocale, Qt
 from PySide6.QtWidgets import QApplication
 
 from app.db.models import WordLevel
@@ -14,6 +15,7 @@ from app.services.lexical_fact_view import LinkedWordReference
 from app.services.review_item_view import ReviewItem
 from app.services.word_detail_service import WordDetailView
 from app.ui.acquisition_page import AcquisitionPage
+from app.ui.main_window import MainWindow
 from app.ui.widgets.pronunciation_widgets import PronunciationPlayButton
 from app.ui.word_detail_controller import WordDetailController
 from app.utils.datetime_utils import UTC
@@ -180,6 +182,28 @@ def test_detail_controller_autoplays_only_the_accepted_generation() -> None:
     controller.close()
     controller.dialog.deleteLater()
     app.processEvents()
+
+
+def test_window_activation_does_not_rescan_voice_without_settings_request() -> None:
+    calls: list[bool] = []
+    window = SimpleNamespace(
+        _shutdown_started=False,
+        _pronunciation_refresh_pending=False,
+        _schedule_pronunciation_refresh=lambda: calls.append(True),
+    )
+
+    MainWindow._application_state_changed(
+        window,
+        Qt.ApplicationState.ApplicationActive,
+    )
+
+    assert calls == []
+    window._pronunciation_refresh_pending = True
+    MainWindow._application_state_changed(
+        window,
+        Qt.ApplicationState.ApplicationActive,
+    )
+    assert calls == [True]
 
 
 def test_acquisition_answer_hidden_stages_disable_pronunciation() -> None:

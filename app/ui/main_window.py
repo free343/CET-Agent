@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
         self.reminder_service = reminder_service
         self._closing_after_workers = False
         self._shutdown_started = False
+        self._pronunciation_refresh_pending = False
         self.reminder_worker: AsyncWorker | None = None
         self.reminder_worker_action: str | None = None
         self._reminder_tasks: deque[tuple[str, Callable[[], object]]] = deque()
@@ -255,6 +256,10 @@ class MainWindow(QMainWindow):
         self.pronunciation_player.settings_opened.connect(
             self._schedule_pronunciation_refresh
         )
+        self.pronunciation_refresh_timer = QTimer(self)
+        self.pronunciation_refresh_timer.setSingleShot(True)
+        self.pronunciation_refresh_timer.setInterval(1500)
+        self.pronunciation_refresh_timer.timeout.connect(self._refresh_pronunciation)
         application = QApplication.instance()
         if application is not None:
             application.applicationStateChanged.connect(self._application_state_changed)
@@ -271,17 +276,30 @@ class MainWindow(QMainWindow):
     def _schedule_pronunciation_refresh(self) -> None:
         if self._shutdown_started:
             return
-        QTimer.singleShot(1500, self._refresh_pronunciation)
+        self._pronunciation_refresh_pending = True
+        self.pronunciation_refresh_timer.start()
 
     def _application_state_changed(self, state) -> None:
         if self._shutdown_started:
             return
-        if state == Qt.ApplicationState.ApplicationActive:
+        if (
+            state == Qt.ApplicationState.ApplicationActive
+            and self._pronunciation_refresh_pending
+        ):
             self._schedule_pronunciation_refresh()
 
     def _refresh_pronunciation(self) -> None:
-        if not self._shutdown_started:
-            self.pronunciation_player.refresh()
+        if self._shutdown_started or not self._pronunciation_refresh_pending:
+            return
+        application = QApplication.instance()
+        if (
+            application is not None
+            and application.applicationState() != Qt.ApplicationState.ApplicationActive
+        ):
+            self._schedule_pronunciation_refresh()
+            return
+        self._pronunciation_refresh_pending = False
+        self.pronunciation_player.refresh()
 
     def show_page(self, index: int) -> None:
         target = self.pages.widget(index)

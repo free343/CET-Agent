@@ -240,7 +240,7 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 426 passed in 49.52s with schema-v14 cleanup plus schema-v13 candidate import/query/UI coverage, target-focused relation formatting, candidate chat labeling, translation-quality gates, expanded relation overlay, linked-word detail-card regressions, confusion-cluster practice, global vocabulary lookup, dashboard route actions, session summaries, validated workload settings, decomposed session-configuration/summary helpers, v14 placeholder pruning, and native-pronunciation regressions | 2026-08-24 |
+| Full pytest suite | 427 passed in 33.06s with schema-v14 cleanup plus schema-v13 candidate import/query/UI coverage, target-focused relation formatting, candidate chat labeling, translation-quality gates, expanded relation overlay, linked-word detail-card regressions, confusion-cluster practice, global vocabulary lookup, dashboard route actions, session summaries, validated workload settings, decomposed session-configuration/summary helpers, v14 placeholder pruning, native-pronunciation regressions, and the guarded voice-refresh regression | 2026-08-24 |
 | Three-stage acquisition and mastered-word implementation | 23 focused domain/service/migration/seed/UI/content tests passed: persistent 0→3 transitions, wrong-answer retention, direct confirmation, FSRS-field preservation, serialized concurrent-attempt protection, exact +24-hour graduation, v10→v11 tables, legacy adoption, full mastered exclusion/restoration including learned-due recovery, reminder suppression, stale confusion-edge filtering, group-boundary/next-group gating, explicit five-word unlock path, three-stage off-GUI UI flow, recovery page, retryable content-error state, and irregular-form handling | 2026-08-23 |
 | Complete acquisition cloze artifact | `python scripts/validate_acquisition_content.py` returned `PASS: 4611 acquisition records produce safe four-choice cloze items`; every record has four unique choices, exactly one correct option, and no target-form leak after repeated-occurrence masking | 2026-08-23 |
 | Split acquisition, formal review, and optional practice | 73 focused service/migration/UI/lifecycle tests passed: untouched and learned-due queues are disjoint, new words use read→quiz→rate, reminders use learned-due only, yesterday/recent/wrong/favorite scopes page without repeats, PracticeLog writes leave every FSRS field/counter and ReviewLog count unchanged, all three page/assistant workers participate in deferred close, and dashboard clock warnings render safely | 2026-08-23 |
@@ -259,7 +259,7 @@ Update this section after every material change. Never report a feature as verif
 | Global vocabulary lookup and detail entry points | 7 focused service/UI regressions passed: exact headword ranks before bounded prefixes, invalid/empty queries do not load the whole bank, the sidebar lookup page opens read-only local cards, favorites/mastered/dashboard wrong-word actions and each analysis-cluster word expose the same controller, and completed detail workers detach before deferred deletion | 2026-08-24 |
 | Actionable dashboard and session summaries | 4 focused UI regressions passed: new/due metric actions navigate through callbacks, acquisition summaries show attempts/mistakes by stage/new graduates/first formal due, formal review summaries show correct/needs-strengthening counts and earliest next due, and practice summaries state recall outcomes without changing scheduling | 2026-08-24 |
 | Current PyInstaller onedir build | `python -m PyInstaller --noconfirm --clean packaging/CET-Agent.spec` completed successfully with the current schema-v14 resources, vocabulary artifacts, licenses, and Windows notification dependencies; output is `dist/CET-Agent/` | 2026-08-24 |
-| Native pronunciation and voice setup | 5 focused fake-player/UI/controller tests passed: explicit English-voice selection after locale setup, mock/Chinese rejection, stop/replacement, disabled answer-hidden controls, official Settings handoff, isolated current-word playback, and accepted-generation detail auto-play. The live workstation detected SAPI `Microsoft Zira Desktop` at `en_US` without using the mock/Chinese voice | 2026-08-24 |
+| Native pronunciation and voice setup | 6 focused fake-player/UI/controller tests passed: explicit English-voice selection after locale setup, mock/Chinese rejection, stop/replacement, disabled answer-hidden controls, official Settings handoff, isolated current-word playback, accepted-generation detail auto-play, and the ordinary-activation regression that prevents an unnecessary engine refresh from interrupting speech. The live workstation detected SAPI `Microsoft Zira Desktop` at `en_US` without using the mock/Chinese voice | 2026-08-24 |
 | Packaged Qt TextToSpeech retention | The onedir build contains `PySide6/Qt6TextToSpeech.dll`, `PySide6/QtTextToSpeech.pyd`, and `PySide6/plugins/texttospeech/qtexttospeech_mock.dll`, `qtexttospeech_sapi.dll`, and `qtexttospeech_winrt.dll`; `CET-Agent.exe --smoke-test` exited 0 in an isolated `LOCALAPPDATA` root | 2026-08-24 |
 | Current Inno Setup installer build | `python scripts/build_windows_installer.py --compiler C:\Users\Admin\AppData\Local\Programs\Inno Setup 6\ISCC.exe` completed successfully with Inno Setup 6.7.3; output is `dist/installer/CET-Agent-Setup-0.1.0.exe` | 2026-08-24 |
 | Installed/distributed smoke | Both `dist/CET-Agent/CET-Agent.exe --smoke-test` and the installed `build/installer-smoke-v14/CET-Agent.exe --smoke-test` exited 0 in isolated `LOCALAPPDATA` roots; each created writable schema-14 databases with 4,611 words/4,198 lexical rows, `PRAGMA integrity_check=ok`, and no foreign-key violations | 2026-08-24 |
@@ -391,21 +391,24 @@ database state:
   cards expose a one-click action that opens the official Windows
   `ms-settings:regionlanguage` page through `QDesktopServices`; it never silently
   elevates, downloads an unverified archive, or falls back to Chinese/mock audio.
-  `MainWindow` re-scans after the application regains focus, and the Settings copy
-  explains that Windows may require network access, confirmation, or permission.
+  `MainWindow` re-scans only after a voice-settings request, defers the scan until
+  the application is active, and never lets an ordinary window-activation event
+  replace an engine that may be speaking. The Settings copy explains that Windows
+  may require network access, confirmation, or permission.
   Non-Windows and cancelled/offline installation paths leave the application usable.
 - The feature adds no migration, table, audio artifact, LLM prompt, or worker-thread
   dependency. The PyInstaller spec explicitly imports `PySide6.QtTextToSpeech`,
   activating the Qt hook that retained `Qt6TextToSpeech.dll` plus mock/SAPI/WinRT
   `plugins/texttospeech` backends in the onedir build.
 
-Automated verification includes four focused fake-player tests for English selection,
-mock/Chinese rejection, stop/replacement, official-settings handoff, button word
-isolation, and accepted-generation detail auto-play; the full offscreen suite remains
-silent. The current workstation enumerates SAPI `Microsoft Zira Desktop` (`en_US`)
-and source/packaged smoke passed. Audible Windows playback and installing a missing
-voice package remain manual acceptance checks for the user because CI cannot hear or
-install OS voices.
+Automated verification includes six focused fake-player/UI/controller tests for
+English selection, mock/Chinese rejection, stop/replacement, official-settings
+handoff, button word isolation, accepted-generation detail auto-play, answer-hidden
+controls, and the regression that ordinary application activation must not rescan
+and interrupt speech; the full offscreen suite remains silent. The current
+workstation enumerates SAPI `Microsoft Zira Desktop` (`en_US`) and source/packaged
+smoke passed. Audible Windows playback and installing a missing voice package remain
+manual acceptance checks for the user because CI cannot hear or install OS voices.
 
 ### Content and model limitations
 
@@ -464,7 +467,7 @@ Manual review of AI-generated content, candidate promotion, and trust-label rede
 6. **Large UI module decomposition (complete 2026-08-24, bounded slice).** Shared immutable study-session configuration and pure completion-summary formatting now live outside the page classes, reducing duplicated policy/constants without inventing a worker or card-action framework. Further page splitting remains a separate refactor only if a future feature exposes a stable boundary; current behavior and worker ownership stay unchanged.
 7. **Low-priority database hygiene (complete 2026-08-24).** Schema v14 provides a serialized, idempotent cleanup that removes only formal/candidate-empty lexical-fact placeholders. The live source database removed 413 rows, retained 328 candidate-only rows, and passed integrity/foreign-key checks; no ad-hoc delete was used.
 8. **Current-source distribution rebuild after functional stabilization (complete 2026-08-24).** Rebuilt the PyInstaller onedir package and unsigned Inno Setup installer from the current schema-v14 source, then smoke-tested both the onedir tree and an isolated installed copy. Application icons, Windows version resources, signing, hosted CI, and a Git remote remain separately deferred by user direction.
-9. **Native pronunciation and English voice setup (complete 2026-08-24).** A shared local Qt TextToSpeech adapter, per-card/detail/list speaker controls, answer-isolated acquisition behavior, accepted-generation detail auto-play, no-English-voice status, official Windows Settings handoff, focus-triggered re-detection, focused tests, and packaged plugin retention are implemented. Audible output and voice-package installation remain manual OS acceptance checks; no schema/audio artifact/model/network path was introduced.
+9. **Native pronunciation and English voice setup (complete 2026-08-24).** A shared local Qt TextToSpeech adapter, per-card/detail/list speaker controls, answer-isolated acquisition behavior, accepted-generation detail auto-play, no-English-voice status, official Windows Settings handoff, settings-request-gated focus re-detection, focused tests, and packaged plugin retention are implemented. Audible output and voice-package installation remain manual OS acceptance checks; no schema/audio artifact/model/network path was introduced.
 
 Items 1–9 of the active optimization backlog are complete as of 2026-08-24. Future work should address newly discovered defects or explicitly reopened backlog items; editorial review/promotion, trust-label redesign, icons, version resources, signing, hosted CI, and remote delivery remain deferred by user direction.
 
@@ -575,7 +578,7 @@ Items 1–9 of the active optimization backlog are complete as of 2026-08-24. Fu
 97. UI decomposition follows ownership boundaries: page classes retain Qt widgets, asynchronous workers, and service callbacks; shared session enums/labels and completion text are dependency-light modules with pure tests. No generic controller abstraction is introduced merely to reduce line count.
 98. Lexical-fact hygiene is migration-only and projection-aware: v14 deletes a row only when both formal JSON layers are empty and both statuses are `missing`, while requiring the parent `words` table and all candidate columns. Candidate-only or formal rows survive, the transaction rolls back on failure, and the compact importer remains the source of truth for future starts.
 99. Distribution freshness is verified from source: every material release rebuilds the PyInstaller onedir tree before compiling the unsigned installer, then launches both the onedir and installed executables with isolated `LOCALAPPDATA`. Smoke must prove writable schema-v14 initialization and database integrity without touching developer data; ignored build outputs are evidence only and are never committed as application state.
-100. Local pronunciation and official voice setup: speech playback is a replaceable OS adapter over Qt Text-to-Speech, selects an explicitly detected English voice after locale setup, and never uses the model, mock engine, or a Chinese voice as a correctness fallback. Missing voices use a user-triggered official Windows Settings handoff plus focus re-detection, not silent elevation, startup downloads, or unlicensed third-party audio; answer-hidden acquisition stages retain their existing information boundary and accepted detail generations alone auto-play.
+100. Local pronunciation and official voice setup: speech playback is a replaceable OS adapter over Qt Text-to-Speech, selects an explicitly detected English voice after locale setup, and never uses the model, mock engine, or a Chinese voice as a correctness fallback. Missing voices use a user-triggered official Windows Settings handoff plus settings-request-gated focus re-detection, not silent elevation, startup downloads, or unlicensed third-party audio; the re-scan must not replace a speaking engine during ordinary window activation. Answer-hidden acquisition stages retain their existing information boundary and accepted detail generations alone auto-play.
 
 ## 8. Development constraints
 
