@@ -20,6 +20,10 @@ from PySide6.QtWidgets import (
 from app.services.lexical_fact_view import LinkedWordReference
 from app.services.mastery_service import MasteredWordItem, MasteryService, MasteryUpdate
 from app.ui.widgets.async_worker import AsyncWorker
+from app.ui.widgets.pronunciation_widgets import (
+    PronunciationInstallButton,
+    PronunciationListRow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +33,13 @@ class MasteredPage(QWidget):
         self,
         service: MasteryService,
         on_open_word: Callable[[LinkedWordReference], None] | None = None,
+        *,
+        pronunciation_player: object | None = None,
     ) -> None:
         super().__init__()
         self.service = service
         self.on_open_word = on_open_word
+        self.pronunciation_player = pronunciation_player
         self.worker: AsyncWorker | None = None
         self.worker_action: str | None = None
         self._refresh_after_worker = False
@@ -77,6 +84,7 @@ class MasteredPage(QWidget):
         self.detail_button.setEnabled(False)
         self.detail_button.clicked.connect(self.open_selected)
         actions.addWidget(self.detail_button)
+        actions.addWidget(PronunciationInstallButton(pronunciation_player, self))
         layout.addLayout(actions)
 
     def refresh(self) -> bool:
@@ -109,6 +117,15 @@ class MasteredPage(QWidget):
             )
             item.setData(Qt.ItemDataRole.UserRole, word.word_id)
             self.word_list.addItem(item)
+            row = PronunciationListRow(
+                word.word,
+                word.phonetic,
+                f"{word.meaning}{example}{translation}",
+                self.pronunciation_player,
+                self.word_list,
+            )
+            self.word_list.setItemWidget(item, row)
+            item.setSizeHint(row.sizeHint())
         self.count_label.setText(f"{len(items)} 个单词")
         self.status_label.setText(
             "选择词条后可以恢复学习。" if items else "暂无完全掌握的单词。"

@@ -6,6 +6,7 @@ from functools import partial
 
 from PySide6.QtCore import QObject
 
+from app.infrastructure.pronunciation import PronunciationPlayer
 from app.services.lexical_fact_view import LinkedWordReference
 from app.services.word_detail_service import WordDetailService, WordDetailView
 from app.ui.widgets.async_worker import AsyncWorker
@@ -15,10 +16,20 @@ from app.ui.word_detail_dialog import WordDetailDialog
 class WordDetailController(QObject):
     """Keep dialog navigation responsive and suppress stale worker results."""
 
-    def __init__(self, service: WordDetailService, parent=None) -> None:
+    def __init__(
+        self,
+        service: WordDetailService,
+        parent=None,
+        *,
+        pronunciation_player: PronunciationPlayer | None = None,
+    ) -> None:
         super().__init__(parent)
         self.service = service
-        self.dialog = WordDetailDialog(parent)
+        self.pronunciation_player = pronunciation_player
+        self.dialog = WordDetailDialog(
+            parent,
+            pronunciation_player=pronunciation_player,
+        )
         self.dialog.linked_word.connect(self._open_nested)
         self.dialog.back_requested.connect(self._go_back)
         self._generation = 0
@@ -36,6 +47,8 @@ class WordDetailController(QObject):
         return tuple(worker for worker in self._workers if worker.isRunning())
 
     def close(self) -> None:
+        if self.pronunciation_player is not None:
+            self.pronunciation_player.stop()
         self.dialog.close()
 
     def _open_nested(self, reference: LinkedWordReference) -> None:
@@ -52,6 +65,8 @@ class WordDetailController(QObject):
         self._generation += 1
         generation = self._generation
         self._current_reference = reference
+        if self.pronunciation_player is not None:
+            self.pronunciation_player.stop()
         self.dialog.set_loading(reference.word)
         self.dialog.set_back_enabled(bool(self._history))
         self.dialog.show()
@@ -79,6 +94,8 @@ class WordDetailController(QObject):
             self.dialog.set_error("词卡内容格式异常，请稍后重试。")
             return
         self.dialog.set_view(result, can_go_back=bool(self._history))
+        if self.pronunciation_player is not None:
+            self.pronunciation_player.play(result.word)
 
     def _failed(self, generation: int, message: str) -> None:
         if generation == self._generation:

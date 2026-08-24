@@ -56,6 +56,7 @@ class AcquisitionPage(QWidget):
         wordbook_service: WordbookService | None = None,
         mastery_service: MasteryService | None = None,
         on_linked_word: Callable[[LinkedWordReference], None] | None = None,
+        pronunciation_player: object | None = None,
     ) -> None:
         super().__init__()
         self.service = service
@@ -112,6 +113,7 @@ class AcquisitionPage(QWidget):
             on_choice=self.select_meaning,
             on_rating=lambda _rating: None,
             on_linked_word=on_linked_word,
+            pronunciation_player=pronunciation_player,
         )
         self.word_label = self.card.word_label
         self.phonetic_label = self.card.phonetic_label
@@ -241,6 +243,7 @@ class AcquisitionPage(QWidget):
             self.phase_label.setText("熟练度 0/3 · 选择中文释义")
             self.word_label.setText(self.current.word)
             self.phonetic_label.setText(self.current.phonetic)
+            self.card.set_pronunciation_word(self.current.word)
             if not self.choice_widget.set_options(self.current.meaning_options):
                 self._show_content_error("当前单词暂时无法生成四个可靠释义选项。")
             else:
@@ -373,6 +376,7 @@ class AcquisitionPage(QWidget):
         self.spelling_panel.hide()
         self.word_label.setText(current.word)
         self.phonetic_label.setText(current.phonetic)
+        self.card.set_pronunciation_word(current.word)
         self.answer_label.setText(
             ("回答正确" if result.is_correct else "回答错误")
             + f"\n中文释义：{current.meaning}"
@@ -540,6 +544,7 @@ class AcquisitionPage(QWidget):
     ) -> None:
         self.word_label.setText("本组新词已完成")
         self.phonetic_label.setText(f"{detail} {self._session_summary()}")
+        self.card.clear_pronunciation()
         self.phase_label.setText("本轮完成")
         self.answer_label.clear()
         self.example_label.clear()
@@ -590,6 +595,7 @@ class AcquisitionPage(QWidget):
         self._hide_formal_controls()
         self.word_label.clear()
         self.phonetic_label.clear()
+        self.card.clear_pronunciation()
         self.answer_label.clear()
         self.example_label.clear()
         self.example_translation_label.clear()
@@ -615,6 +621,12 @@ class AcquisitionPage(QWidget):
         self.spelling_input.setEnabled(enabled and self.current is not None)
         self.spelling_submit_button.setEnabled(enabled and self.current is not None)
         self.self_confirm_button.setEnabled(enabled and self.current is not None)
+        if self.current is None:
+            self.card.clear_pronunciation()
+        elif self.current.proficiency_level == 0:
+            self.card.set_pronunciation_word(self.current.word, enabled=enabled)
+        else:
+            self.card.clear_pronunciation()
         self._refresh_favorite_button()
         self._refresh_mastered_button()
 

@@ -79,6 +79,7 @@ class ReviewPage(QWidget):
         practice_service: PracticeService | None = None,
         practice_scope: PracticeScope | str = PracticeScope.YESTERDAY,
         on_linked_word: Callable[[LinkedWordReference], None] | None = None,
+        pronunciation_player: object | None = None,
     ) -> None:
         super().__init__()
         self.service = service
@@ -177,7 +178,9 @@ class ReviewPage(QWidget):
             on_rating=self.submit,
             on_report_learning_aid=self.report_learning_aid_issue,
             on_linked_word=on_linked_word,
+            pronunciation_player=pronunciation_player,
         )
+        self.card = card
         self.word_label = card.word_label
         self.phase_label = card.phase_label
         self.phonetic_label = card.phonetic_label
@@ -307,6 +310,7 @@ class ReviewPage(QWidget):
         self.phase_label.setText("正在加载")
         self.word_label.setText(self._loading_text())
         self.phonetic_label.clear()
+        self.card.clear_pronunciation()
         self.answer_label.clear()
         self.example_label.clear()
         self.example_translation_label.clear()
@@ -364,6 +368,7 @@ class ReviewPage(QWidget):
             complete_title, complete_detail = self._completion_copy()
             self.word_label.setText(complete_title)
             self.phonetic_label.setText(complete_detail)
+            self.card.clear_pronunciation()
             self.answer_label.clear()
             self.example_label.clear()
             self.example_translation_label.clear()
@@ -395,6 +400,7 @@ class ReviewPage(QWidget):
         self._sync_assistant_context()
         self.word_label.setText(self.current.word)
         self.phonetic_label.setText(self.current.phonetic)
+        self.card.set_pronunciation_word(self.current.word)
         self._refresh_favorite_button()
         self._refresh_mastered_button()
         self.answer_label.clear()
@@ -613,6 +619,7 @@ class ReviewPage(QWidget):
         self._sync_assistant_context()
         self.word_label.setText("正在检查剩余学习任务…")
         self.phonetic_label.clear()
+        self.card.clear_pronunciation()
         self.answer_label.clear()
         self.example_label.clear()
         self.example_translation_label.clear()
@@ -706,18 +713,21 @@ class ReviewPage(QWidget):
         if result.due_count > 0:
             self.word_label.setText("发现新的到期复习任务")
             self.phonetic_label.setText("优先完成到期任务后再继续学习新词。")
+            self.card.clear_pronunciation()
             self.continue_button.hide()
             self._load_after_worker = True
             return
         if result.unlocked_count == 0:
             self.word_label.setText("当前等级的词汇已经全部加入学习计划")
             self.phonetic_label.setText("可以切换等级，或稍后复习已经学过的词。")
+            self.card.clear_pronunciation()
             self.continue_button.setText("没有更多新词")
             if self.on_session_state_changed:
                 self.on_session_state_changed(False)
             return
         self.word_label.setText(f"已加入 {result.unlocked_count} 个新词")
         self.phonetic_label.setText("正在开始加练…")
+        self.card.clear_pronunciation()
         self.continue_button.hide()
         self._load_after_worker = True
 
@@ -745,6 +755,7 @@ class ReviewPage(QWidget):
             self._sync_assistant_context()
             self.word_label.setText("正在检查剩余复习任务…")
             self.phonetic_label.clear()
+            self.card.clear_pronunciation()
             self.answer_label.clear()
             self.example_label.clear()
             self.example_translation_label.clear()
@@ -780,6 +791,7 @@ class ReviewPage(QWidget):
             self._sync_assistant_context()
             self.word_label.setText("正在检查这个范围的剩余单词…")
             self.phonetic_label.clear()
+            self.card.clear_pronunciation()
             self.answer_label.clear()
             self.example_label.clear()
             self.example_translation_label.clear()
@@ -903,6 +915,7 @@ class ReviewPage(QWidget):
             self.on_session_state_changed(False)
         self.word_label.setText("暂时无法加载复习任务")
         self.phonetic_label.clear()
+        self.card.clear_pronunciation()
         self.answer_label.clear()
         self.example_label.clear()
         self.example_translation_label.clear()

@@ -12,6 +12,17 @@ QLabel#PageTitle { font-size: 25px; font-weight: 700; color: #111827; }
 QLabel#Metric { font-size: 28px; font-weight: 700; color: #2563eb; }
 QLabel#Word { font-size: 38px; font-weight: 700; color: #111827; }
 QLabel#Phonetic { color: #64748b; font-size: 17px; }
+QPushButton#PronunciationButton { background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; border-radius: 7px; padding: 5px 8px; font-size: 16px; }
+QPushButton#PronunciationButton:hover { background: #e0e7ff; border-color: #818cf8; }
+QPushButton#PronunciationButton:disabled { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; }
+QPushButton#PronunciationInstallButton { background: #fff7ed; color: #9a3412; border: 1px solid #fed7aa; border-radius: 7px; padding: 5px 9px; }
+QPushButton#PronunciationInstallButton:hover { background: #ffedd5; border-color: #fb923c; }
+QLabel#PronunciationStatus { color: #475569; }
+QLabel#PronunciationSetupNote { color: #64748b; }
+QWidget#PronunciationListRow { background: transparent; }
+QLabel#PronunciationListWord { color: #1e293b; font-size: 16px; font-weight: 700; }
+QLabel#PronunciationListPhonetic { color: #64748b; }
+QLabel#PronunciationListBody { color: #475569; }
 QPushButton#PrimaryButton { background: #2563eb; color: white; border: none; border-radius: 8px; padding: 10px 18px; font-weight: 600; }
 QPushButton#PrimaryButton:hover { background: #1d4ed8; }
 QPushButton#SecondaryButton { background: white; color: #334155; border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px 14px; }

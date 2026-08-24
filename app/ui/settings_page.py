@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFormLayout,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QPlainTextEdit,
     QScrollArea,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.config import ENV_FILE, Settings
+from app.ui.widgets.pronunciation_widgets import PronunciationInstallButton
 
 DEEPSEEK_ADVANCED_TEMPLATE = """ADVANCED_LLM_PROVIDER=openai-compatible
 ADVANCED_LLM_MODEL=deepseek-v4-flash
@@ -22,8 +24,13 @@ ADVANCED_LLM_API_KEY="""
 
 
 class SettingsPage(QWidget):
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        pronunciation_player: object | None = None,
+    ) -> None:
         super().__init__()
+        self.pronunciation_player = pronunciation_player
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
@@ -74,6 +81,23 @@ class SettingsPage(QWidget):
         form.addRow("每日新词释放", QLabel(f"{settings.daily_new_word_limit} 个"))
         form.addRow("新词学习组大小", QLabel(f"{settings.new_word_group_size} 个"))
         form.addRow("主动加练包大小", QLabel(f"{settings.extra_new_word_count} 个"))
+        pronunciation_row = QHBoxLayout()
+        self.pronunciation_status_label = QLabel("")
+        self.pronunciation_status_label.setObjectName("PronunciationStatus")
+        pronunciation_row.addWidget(self.pronunciation_status_label, 1)
+        pronunciation_row.addWidget(
+            PronunciationInstallButton(pronunciation_player, self)
+        )
+        pronunciation_container = QWidget()
+        pronunciation_container.setLayout(pronunciation_row)
+        form.addRow("英语发音", pronunciation_container)
+        pronunciation_note = QLabel(
+            "未检测到英语声音时，点击按钮打开 Windows 语言设置，添加 English 语言并在"
+            "语言选项中下载语音包；安装后返回应用即可自动重新检测。"
+        )
+        pronunciation_note.setWordWrap(True)
+        pronunciation_note.setObjectName("PronunciationSetupNote")
+        form.addRow("", pronunciation_note)
         form.addRow(
             "提醒时段",
             QLabel(
@@ -133,3 +157,17 @@ class SettingsPage(QWidget):
         layout.addStretch()
         scroll.setWidget(content)
         root_layout.addWidget(scroll)
+        self._update_pronunciation_status(getattr(pronunciation_player, "status", None))
+        signal = getattr(pronunciation_player, "status_changed", None)
+        if signal is not None:
+            signal.connect(self._update_pronunciation_status)
+
+    def _update_pronunciation_status(self, status: object) -> None:
+        if self.pronunciation_player is None:
+            self.pronunciation_status_label.setText("随系统声音播放（未初始化）")
+            return
+        if bool(getattr(status, "available", False)):
+            voice_name = str(getattr(status, "voice_name", "") or "英语声音")
+            self.pronunciation_status_label.setText(f"已启用 · {voice_name}")
+        else:
+            self.pronunciation_status_label.setText("未检测到英语声音，可下载语音包")

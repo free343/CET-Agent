@@ -19,6 +19,10 @@ from PySide6.QtWidgets import (
 from app.services.lexical_fact_view import LinkedWordReference
 from app.services.word_detail_service import WordDetailView
 from app.ui.widgets.lexical_link_label import LexicalLinkLabel
+from app.ui.widgets.pronunciation_widgets import (
+    PronunciationInstallButton,
+    PronunciationPlayButton,
+)
 
 
 class WordDetailDialog(QDialog):
@@ -27,7 +31,9 @@ class WordDetailDialog(QDialog):
     linked_word = Signal(object)
     back_requested = Signal()
 
-    def __init__(self, parent=None) -> None:
+    def __init__(
+        self, parent=None, *, pronunciation_player: object | None = None
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("词卡详情")
         self.resize(760, 620)
@@ -60,6 +66,10 @@ class WordDetailDialog(QDialog):
 
         self.phonetic_label = QLabel("")
         self.phonetic_label.setObjectName("WordDetailPhonetic")
+        self.pronunciation_button = PronunciationPlayButton(pronunciation_player)
+        self.pronunciation_install_button = PronunciationInstallButton(
+            pronunciation_player
+        )
         self.meaning_label = QLabel("")
         self.meaning_label.setObjectName("WordDetailMeaning")
         self.meaning_label.setWordWrap(True)
@@ -68,7 +78,12 @@ class WordDetailDialog(QDialog):
         self.status_label = QLabel("")
         self.status_label.setObjectName("WordDetailStatus")
         self.status_label.setWordWrap(True)
-        outer.addWidget(self.phonetic_label)
+        phonetic_row = QHBoxLayout()
+        phonetic_row.addWidget(self.phonetic_label)
+        phonetic_row.addWidget(self.pronunciation_button)
+        phonetic_row.addWidget(self.pronunciation_install_button)
+        phonetic_row.addStretch()
+        outer.addLayout(phonetic_row)
         outer.addWidget(self.meaning_label)
         outer.addWidget(self.level_label)
         outer.addWidget(self.status_label)
@@ -133,6 +148,7 @@ class WordDetailDialog(QDialog):
     def set_loading(self, word: str) -> None:
         self.word_label.setText(str(word).strip())
         self.phonetic_label.clear()
+        self.pronunciation_button.clear_word()
         self.meaning_label.clear()
         self.level_label.clear()
         self.status_label.clear()
@@ -149,12 +165,14 @@ class WordDetailDialog(QDialog):
         self.loading_label.setText(str(message).strip() or "词卡暂时无法打开。")
         self.loading_label.show()
         self.status_label.clear()
+        self.pronunciation_button.clear_word()
         self.comparison_frame.hide()
         self._link_labels.clear()
 
     def set_view(self, view: WordDetailView, *, can_go_back: bool = False) -> None:
         self.word_label.setText(view.word)
         self.phonetic_label.setText(view.phonetic)
+        self.pronunciation_button.set_word(view.word)
         self.meaning_label.setText(view.meaning or "暂无中文释义")
         self.level_label.setText(view.level)
         self.status_label.setText(view.trust_label)

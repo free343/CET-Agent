@@ -9,7 +9,7 @@ from collections.abc import Callable
 from datetime import datetime
 from functools import partial
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from app.config import Settings
 from app.infrastructure.notification_adapter import QtNotificationAdapter
+from app.infrastructure.pronunciation import PronunciationPlayer
 from app.services.acquisition_service import AcquisitionService
 from app.services.ai_service import AIService
 from app.services.analysis_service import AnalysisService
@@ -107,10 +108,15 @@ class MainWindow(QMainWindow):
         self.mastery_service = mastery_service or MasteryService(
             review_service.database
         )
+        self.pronunciation_player = PronunciationPlayer(self)
         detail_service = word_detail_service or WordDetailService(
             review_service.database
         )
-        self.word_detail_controller = WordDetailController(detail_service, self)
+        self.word_detail_controller = WordDetailController(
+            detail_service,
+            self,
+            pronunciation_player=self.pronunciation_player,
+        )
         linked_word_callback = self.word_detail_controller.open
 
         root = QWidget()
@@ -138,14 +144,17 @@ class MainWindow(QMainWindow):
         self.vocabulary_page = VocabularyPage(
             detail_service,
             on_open_word=linked_word_callback,
+            pronunciation_player=self.pronunciation_player,
         )
         self.wordbook_page = WordbookPage(
             wordbook_service,
             on_open_word=linked_word_callback,
+            pronunciation_player=self.pronunciation_player,
         )
         self.mastered_page = MasteredPage(
             self.mastery_service,
             on_open_word=linked_word_callback,
+            pronunciation_player=self.pronunciation_player,
         )
         self.learning_page = AcquisitionPage(
             self.acquisition_service,
@@ -155,6 +164,7 @@ class MainWindow(QMainWindow):
             wordbook_service=wordbook_service,
             mastery_service=self.mastery_service,
             on_linked_word=linked_word_callback,
+            pronunciation_player=self.pronunciation_player,
         )
         self.review_page = ReviewPage(
             review_service,
@@ -166,6 +176,7 @@ class MainWindow(QMainWindow):
             mastery_service=self.mastery_service,
             session_mode=StudySessionMode.REVIEW,
             on_linked_word=linked_word_callback,
+            pronunciation_player=self.pronunciation_player,
         )
         self.practice_page = ReviewPage(
             review_service,
@@ -178,6 +189,7 @@ class MainWindow(QMainWindow):
             session_mode=StudySessionMode.PRACTICE,
             practice_service=practice_service,
             on_linked_word=linked_word_callback,
+            pronunciation_player=self.pronunciation_player,
         )
         self.study_pages = (
             self.learning_page,
@@ -191,7 +203,7 @@ class MainWindow(QMainWindow):
             on_open_word=linked_word_callback,
         )
         self.chat_page = ChatPage(ai_service)
-        self.settings_page = SettingsPage(settings)
+        self.settings_page = SettingsPage(settings, self.pronunciation_player)
         pages = (
             ("学习概览", self.dashboard_page),
             ("词汇查找", self.vocabulary_page),
@@ -240,6 +252,12 @@ class MainWindow(QMainWindow):
             self._start_review_from_reminder,
             self._snooze_reminder,
         )
+        self.pronunciation_player.settings_opened.connect(
+            self._schedule_pronunciation_refresh
+        )
+        application = QApplication.instance()
+        if application is not None:
+            application.applicationStateChanged.connect(self._application_state_changed)
         self.reminder_timer = QTimer(self)
         self.reminder_timer.setInterval(5 * 60 * 1000)
         self.reminder_timer.timeout.connect(self._check_reminder)
@@ -249,6 +267,21 @@ class MainWindow(QMainWindow):
         self.reminder_wakeup_timer.timeout.connect(self._check_reminder)
         QTimer.singleShot(1500, self._check_reminder)
         self.dashboard_page.refresh()
+
+    def _schedule_pronunciation_refresh(self) -> None:
+        if self._shutdown_started:
+            return
+        QTimer.singleShot(1500, self._refresh_pronunciation)
+
+    def _application_state_changed(self, state) -> None:
+        if self._shutdown_started:
+            return
+        if state == Qt.ApplicationState.ApplicationActive:
+            self._schedule_pronunciation_refresh()
+
+    def _refresh_pronunciation(self) -> None:
+        if not self._shutdown_started:
+            self.pronunciation_player.refresh()
 
     def show_page(self, index: int) -> None:
         target = self.pages.widget(index)
@@ -429,6 +462,7 @@ class MainWindow(QMainWindow):
             self.reminder_timer.stop()
             self.reminder_wakeup_timer.stop()
             self.reminder_service.set_review_session_active(False)
+            self.pronunciation_player.stop()
             if self.word_detail_controller is not None:
                 self.word_detail_controller.close()
             self._enqueue_reminder_task(

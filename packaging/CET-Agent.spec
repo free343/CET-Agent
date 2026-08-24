@@ -43,7 +43,9 @@ a = Analysis(
     datas=[(str(source), target) for source, target in data_files] + metadata_files,
     # The Windows notification backend is loaded with importlib so source mode
     # can remain portable when the platform-specific dependency is absent.
-    hiddenimports=["windows_toasts"],
+    # Importing QtTextToSpeech explicitly activates PyInstaller's Qt hook, which
+    # retains Qt6TextToSpeech.dll and the texttospeech mock/SAPI/WinRT plugins.
+    hiddenimports=["windows_toasts", "PySide6.QtTextToSpeech"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

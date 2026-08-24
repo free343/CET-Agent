@@ -24,6 +24,10 @@ from app.services.wordbook_service import (
     WordbookService,
 )
 from app.ui.widgets.async_worker import AsyncWorker
+from app.ui.widgets.pronunciation_widgets import (
+    PronunciationInstallButton,
+    PronunciationListRow,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +37,13 @@ class WordbookPage(QWidget):
         self,
         service: WordbookService,
         on_open_word: Callable[[LinkedWordReference], None] | None = None,
+        *,
+        pronunciation_player: object | None = None,
     ) -> None:
         super().__init__()
         self.service = service
         self.on_open_word = on_open_word
+        self.pronunciation_player = pronunciation_player
         self.worker: AsyncWorker | None = None
         self.worker_action: str | None = None
         self._refresh_after_worker = False
@@ -79,6 +86,7 @@ class WordbookPage(QWidget):
         self.detail_button.setEnabled(False)
         self.detail_button.clicked.connect(self.open_selected)
         actions.addWidget(self.detail_button)
+        actions.addWidget(PronunciationInstallButton(pronunciation_player, self))
         layout.addLayout(actions)
 
     def refresh(self) -> bool:
@@ -111,6 +119,15 @@ class WordbookPage(QWidget):
             )
             item.setData(Qt.ItemDataRole.UserRole, word.word_id)
             self.word_list.addItem(item)
+            row = PronunciationListRow(
+                word.word,
+                word.phonetic,
+                f"{word.meaning}{example}{translation}",
+                self.pronunciation_player,
+                self.word_list,
+            )
+            self.word_list.setItemWidget(item, row)
+            item.setSizeHint(row.sizeHint())
         self.count_label.setText(f"{len(items)} 个收藏")
         self.status_label.setText(
             "选择词条后可以取消收藏。" if items else "暂无收藏的单词。"

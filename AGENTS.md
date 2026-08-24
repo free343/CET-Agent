@@ -240,7 +240,7 @@ Update this section after every material change. Never report a feature as verif
 
 | Verification | Latest result | Evidence date |
 |---|---:|---:|
-| Full pytest suite | 421 passed in 29.77s with schema-v14 cleanup plus schema-v13 candidate import/query/UI coverage, target-focused relation formatting, candidate chat labeling, translation-quality gates, expanded relation overlay, linked-word detail-card regressions, confusion-cluster practice, global vocabulary lookup, dashboard route actions, session summaries, validated workload settings, decomposed session-configuration/summary helpers, and the v14 placeholder-pruning regression | 2026-08-24 |
+| Full pytest suite | 426 passed in 49.52s with schema-v14 cleanup plus schema-v13 candidate import/query/UI coverage, target-focused relation formatting, candidate chat labeling, translation-quality gates, expanded relation overlay, linked-word detail-card regressions, confusion-cluster practice, global vocabulary lookup, dashboard route actions, session summaries, validated workload settings, decomposed session-configuration/summary helpers, v14 placeholder pruning, and native-pronunciation regressions | 2026-08-24 |
 | Three-stage acquisition and mastered-word implementation | 23 focused domain/service/migration/seed/UI/content tests passed: persistent 0→3 transitions, wrong-answer retention, direct confirmation, FSRS-field preservation, serialized concurrent-attempt protection, exact +24-hour graduation, v10→v11 tables, legacy adoption, full mastered exclusion/restoration including learned-due recovery, reminder suppression, stale confusion-edge filtering, group-boundary/next-group gating, explicit five-word unlock path, three-stage off-GUI UI flow, recovery page, retryable content-error state, and irregular-form handling | 2026-08-23 |
 | Complete acquisition cloze artifact | `python scripts/validate_acquisition_content.py` returned `PASS: 4611 acquisition records produce safe four-choice cloze items`; every record has four unique choices, exactly one correct option, and no target-form leak after repeated-occurrence masking | 2026-08-23 |
 | Split acquisition, formal review, and optional practice | 73 focused service/migration/UI/lifecycle tests passed: untouched and learned-due queues are disjoint, new words use read→quiz→rate, reminders use learned-due only, yesterday/recent/wrong/favorite scopes page without repeats, PracticeLog writes leave every FSRS field/counter and ReviewLog count unchanged, all three page/assistant workers participate in deferred close, and dashboard clock warnings render safely | 2026-08-23 |
@@ -259,6 +259,8 @@ Update this section after every material change. Never report a feature as verif
 | Global vocabulary lookup and detail entry points | 7 focused service/UI regressions passed: exact headword ranks before bounded prefixes, invalid/empty queries do not load the whole bank, the sidebar lookup page opens read-only local cards, favorites/mastered/dashboard wrong-word actions and each analysis-cluster word expose the same controller, and completed detail workers detach before deferred deletion | 2026-08-24 |
 | Actionable dashboard and session summaries | 4 focused UI regressions passed: new/due metric actions navigate through callbacks, acquisition summaries show attempts/mistakes by stage/new graduates/first formal due, formal review summaries show correct/needs-strengthening counts and earliest next due, and practice summaries state recall outcomes without changing scheduling | 2026-08-24 |
 | Current PyInstaller onedir build | `python -m PyInstaller --noconfirm --clean packaging/CET-Agent.spec` completed successfully with the current schema-v14 resources, vocabulary artifacts, licenses, and Windows notification dependencies; output is `dist/CET-Agent/` | 2026-08-24 |
+| Native pronunciation and voice setup | 5 focused fake-player/UI/controller tests passed: explicit English-voice selection after locale setup, mock/Chinese rejection, stop/replacement, disabled answer-hidden controls, official Settings handoff, isolated current-word playback, and accepted-generation detail auto-play. The live workstation detected SAPI `Microsoft Zira Desktop` at `en_US` without using the mock/Chinese voice | 2026-08-24 |
+| Packaged Qt TextToSpeech retention | The onedir build contains `PySide6/Qt6TextToSpeech.dll`, `PySide6/QtTextToSpeech.pyd`, and `PySide6/plugins/texttospeech/qtexttospeech_mock.dll`, `qtexttospeech_sapi.dll`, and `qtexttospeech_winrt.dll`; `CET-Agent.exe --smoke-test` exited 0 in an isolated `LOCALAPPDATA` root | 2026-08-24 |
 | Current Inno Setup installer build | `python scripts/build_windows_installer.py --compiler C:\Users\Admin\AppData\Local\Programs\Inno Setup 6\ISCC.exe` completed successfully with Inno Setup 6.7.3; output is `dist/installer/CET-Agent-Setup-0.1.0.exe` | 2026-08-24 |
 | Installed/distributed smoke | Both `dist/CET-Agent/CET-Agent.exe --smoke-test` and the installed `build/installer-smoke-v14/CET-Agent.exe --smoke-test` exited 0 in isolated `LOCALAPPDATA` roots; each created writable schema-14 databases with 4,611 words/4,198 lexical rows, `PRAGMA integrity_check=ok`, and no foreign-key violations | 2026-08-24 |
 | Python dependency integrity | `pip check` reported no broken requirements | 2026-08-24 |
@@ -360,18 +362,50 @@ python main.py
 - Low-risk database hygiene is complete for the current source database: schema v14 removed 413 legacy `word_lexical_facts` rows that were empty in both formal and candidate layers, retained 328 rows carrying candidate-only content, and verified idempotency plus SQLite integrity/foreign-key checks. Fresh databases and subsequent imports remain compact; no ad-hoc delete is allowed.
 - No form or relation candidate has been promoted to `source_validated`. The v3 relation overlay is packaged, imported, queried, and displayed only as `来源候选 · 待审核`; it is isolated from the formal artifact and all scheduling data. The offline audit has checked every relation/form item, removed the reported `human → homo` specialist-only target, and produced a detail ledger. A stratified human audit of the 827 form conflicts, 1,118 source additions, and 3,185 conservative synonym-sense mismatch flags across 1,510 headwords remains mandatory before any promotion, but the user has explicitly deferred manual AI-content review, editorial promotion work, and trust-label redesign for the current development sequence. Existing statuses and labels must remain unchanged while this work is parked.
 
-### Planned pronunciation and voice installation
+### Native pronunciation and English voice installation (implemented 2026-08-24)
 
-This feature is planned but not implemented yet. The goal is to make the pronunciation of every bundled headword immediately available without adding network/API/model dependence:
+The pronunciation slice is implemented without network/API/model dependence or new
+database state:
 
-- `ReviewCardWidget` and the read-only `WordDetailDialog` will keep the existing phonetic text and add an accessible speaker button beside it. `VocabularyPage`, `WordbookPage`, and `MasteredPage` list rows will expose the same compact speaker action for every visible phonetic entry, so a user need not open a detail card just to hear a word. The reusable word-detail controller will trigger one automatic utterance only after the accepted asynchronous `WordDetailView` has been rendered; nested relation navigation, Alt+Left/back, lookup, favorites, mastered words, dashboard wrong words, and confusion-cluster entry points therefore all speak the current word rather than a stale worker result. Closing or replacing a card stops any previous utterance.
-- A single GUI-thread-owned `app/infrastructure/pronunciation.py` adapter will wrap `PySide6.QtTextToSpeech`. It will speak the English headword (`Word.word`), not the IPA display string, stop before replacing an utterance, reject the `mock` engine in production, and select only a voice whose locale is `en_US`/`en_GB` (or a verified English fallback). The current workstation exposes SAPI `Microsoft Zira Desktop` after explicitly setting `en_US`; implementation must enumerate voices after setting the locale and must never silently choose the installed Chinese voice.
-- The first version adds no table, migration, audio artifact, or scheduling/LLM path. `Word.phonetic` remains display metadata; system TTS is an operating-system adapter. No TTS work may run on an `AsyncWorker`, because `QTextToSpeech` is an event-loop object and `say()` is already asynchronous; all calls stay on the Qt thread and the shared player prevents overlapping speech.
-- Answer isolation remains mandatory. A speaker action is available when the word/answer is already visible, and is hidden or disabled in acquisition/formal states where pronunciation could reveal a recognition/cloze/spelling answer before the attempt boundary. Word-detail and wordbook views are non-testing contexts and may play immediately.
-- When no English voice is detected, the UI will show a stable status (“未检测到英语系统声音”) and a one-click “下载/安装英语语音包” action. On Windows the action will open the official Microsoft speech/language Settings URI through `QDesktopServices` (prefer the speech page, with the language page as a compatibility fallback), never invoke an unreviewed URL, run a hidden PowerShell capability install, or request elevation without an explicit user action. After the Settings window is closed or the app regains focus, the adapter will re-scan voices and enable playback automatically when an English voice becomes available. The UI will state that Windows may require network access, a language-pack confirmation, or administrator approval; the app must remain usable when the download is cancelled or offline.
-- If the operating system has no supported English voice, the control remains disabled with an actionable explanation. The feature must not fall back to the Chinese voice, an LLM, or an unlicensed third-party audio download. Words with multiple pronunciations use the system voice's default headword reading in phase 1; verified per-sense audio/phoneme overrides are a later, separate data-quality task.
+- `app/infrastructure/pronunciation.py` owns one GUI-thread `PronunciationPlayer` over
+  `PySide6.QtTextToSpeech`. It enumerates a real OS engine only after setting English
+  locales, rejects the `mock` engine and all non-English voices, speaks the bounded
+  headword rather than the IPA label, stops an earlier utterance before replacement,
+  and exposes a stable `PronunciationStatus` for presentation.
+- `ReviewCardWidget` and `WordDetailDialog` retain their existing phonetic labels and
+  add accessible speaker/install controls. The acquisition page clears or disables
+  the speaker in cloze/spelling answer-hidden stages and enables it only for the
+  visible word or post-attempt feedback. Formal review keeps the word visible and
+  can play it manually. Replacing a card or closing a detail dialog stops prior
+  speech, so audio cannot leak across card generations.
+- `VocabularyPage`, `WordbookPage`, and `MasteredPage` preserve their legacy
+  `QListWidgetItem` text/data while attaching compact per-row speaker controls. The
+  shared player is injected from `MainWindow`; no list or UI class creates a model,
+  database row, audio asset, or scheduling event.
+- `WordDetailController` starts automatic playback exactly once after the accepted
+  asynchronous `WordDetailView` is rendered. Generation checks still suppress stale
+  results; lookup, favorites, mastered words, dashboard wrong words, analysis
+  clusters, linked targets, and nested/back navigation all reuse this controller.
+- When no English voice is found, controls remain disabled and show
+  `未检测到英语系统声音，可下载英语语音包。`. The Settings page and visible study
+  cards expose a one-click action that opens the official Windows
+  `ms-settings:regionlanguage` page through `QDesktopServices`; it never silently
+  elevates, downloads an unverified archive, or falls back to Chinese/mock audio.
+  `MainWindow` re-scans after the application regains focus, and the Settings copy
+  explains that Windows may require network access, confirmation, or permission.
+  Non-Windows and cancelled/offline installation paths leave the application usable.
+- The feature adds no migration, table, audio artifact, LLM prompt, or worker-thread
+  dependency. The PyInstaller spec explicitly imports `PySide6.QtTextToSpeech`,
+  activating the Qt hook that retained `Qt6TextToSpeech.dll` plus mock/SAPI/WinRT
+  `plugins/texttospeech` backends in the onedir build.
 
-Implementation verification must include fake-player tests for button state, English-voice selection, stop/replacement, automatic detail playback, nested/back generation safety, no-voice fallback, official-settings handoff, and answer isolation; offscreen UI tests must remain silent; Windows manual acceptance must confirm audible English output, detail auto-play, and re-detection after installing an English voice. The PyInstaller spec must explicitly retain `PySide6.QtTextToSpeech`, `Qt6TextToSpeech.dll`, and the `plugins/texttospeech` SAPI/WinRT backends, followed by packaged smoke testing.
+Automated verification includes four focused fake-player tests for English selection,
+mock/Chinese rejection, stop/replacement, official-settings handoff, button word
+isolation, and accepted-generation detail auto-play; the full offscreen suite remains
+silent. The current workstation enumerates SAPI `Microsoft Zira Desktop` (`en_US`)
+and source/packaged smoke passed. Audible Windows playback and installing a missing
+voice package remain manual acceptance checks for the user because CI cannot hear or
+install OS voices.
 
 ### Content and model limitations
 
@@ -430,9 +464,9 @@ Manual review of AI-generated content, candidate promotion, and trust-label rede
 6. **Large UI module decomposition (complete 2026-08-24, bounded slice).** Shared immutable study-session configuration and pure completion-summary formatting now live outside the page classes, reducing duplicated policy/constants without inventing a worker or card-action framework. Further page splitting remains a separate refactor only if a future feature exposes a stable boundary; current behavior and worker ownership stay unchanged.
 7. **Low-priority database hygiene (complete 2026-08-24).** Schema v14 provides a serialized, idempotent cleanup that removes only formal/candidate-empty lexical-fact placeholders. The live source database removed 413 rows, retained 328 candidate-only rows, and passed integrity/foreign-key checks; no ad-hoc delete was used.
 8. **Current-source distribution rebuild after functional stabilization (complete 2026-08-24).** Rebuilt the PyInstaller onedir package and unsigned Inno Setup installer from the current schema-v14 source, then smoke-tested both the onedir tree and an isolated installed copy. Application icons, Windows version resources, signing, hosted CI, and a Git remote remain separately deferred by user direction.
-9. **Native pronunciation and English voice setup (planned 2026-08-24).** Add a shared local `PySide6.QtTextToSpeech` adapter, a speaker action beside every learner-facing phonetic label, and one automatic utterance after an accepted word-detail view loads. Existing word-detail entry points (lookup, favorites, mastered, dashboard wrong words, confusion clusters, and linked targets) must reuse the current controller so nested/back navigation speaks the correct generation. If no English system voice is found, expose a clearly labelled “一键下载/安装英语语音包” action that opens the official Windows speech/language settings entry, then re-detects voices; do not silently elevate, embed third-party voice archives, or download at application startup. The action is an official-settings handoff rather than an unverified direct binary download, and the UI must explain that Windows may request user permission or an additional confirmation.
+9. **Native pronunciation and English voice setup (complete 2026-08-24).** A shared local Qt TextToSpeech adapter, per-card/detail/list speaker controls, answer-isolated acquisition behavior, accepted-generation detail auto-play, no-English-voice status, official Windows Settings handoff, focus-triggered re-detection, focused tests, and packaged plugin retention are implemented. Audible output and voice-package installation remain manual OS acceptance checks; no schema/audio artifact/model/network path was introduced.
 
-Items 1–8 of the active optimization backlog are complete as of 2026-08-24. Item 9 is the next planned pronunciation feature. Future work should address newly discovered defects or explicitly reopened backlog items; editorial review/promotion, trust-label redesign, icons, version resources, signing, hosted CI, and remote delivery remain deferred by user direction.
+Items 1–9 of the active optimization backlog are complete as of 2026-08-24. Future work should address newly discovered defects or explicitly reopened backlog items; editorial review/promotion, trust-label redesign, icons, version resources, signing, hosted CI, and remote delivery remain deferred by user direction.
 
 ### Deferred delivery work
 
@@ -541,7 +575,7 @@ Items 1–8 of the active optimization backlog are complete as of 2026-08-24. It
 97. UI decomposition follows ownership boundaries: page classes retain Qt widgets, asynchronous workers, and service callbacks; shared session enums/labels and completion text are dependency-light modules with pure tests. No generic controller abstraction is introduced merely to reduce line count.
 98. Lexical-fact hygiene is migration-only and projection-aware: v14 deletes a row only when both formal JSON layers are empty and both statuses are `missing`, while requiring the parent `words` table and all candidate columns. Candidate-only or formal rows survive, the transaction rolls back on failure, and the compact importer remains the source of truth for future starts.
 99. Distribution freshness is verified from source: every material release rebuilds the PyInstaller onedir tree before compiling the unsigned installer, then launches both the onedir and installed executables with isolated `LOCALAPPDATA`. Smoke must prove writable schema-v14 initialization and database integrity without touching developer data; ignored build outputs are evidence only and are never committed as application state.
-100. Local pronunciation and official voice setup: speech playback is a replaceable OS adapter over Qt Text-to-Speech, selects an explicitly detected English voice, and never uses the model or a Chinese voice as a correctness fallback. Missing voices are handled by a user-triggered official Windows Settings handoff plus re-detection, not silent elevation, startup downloads, or unlicensed third-party audio; answer-hidden study stages retain their existing information boundary.
+100. Local pronunciation and official voice setup: speech playback is a replaceable OS adapter over Qt Text-to-Speech, selects an explicitly detected English voice after locale setup, and never uses the model, mock engine, or a Chinese voice as a correctness fallback. Missing voices use a user-triggered official Windows Settings handoff plus focus re-detection, not silent elevation, startup downloads, or unlicensed third-party audio; answer-hidden acquisition stages retain their existing information boundary and accepted detail generations alone auto-play.
 
 ## 8. Development constraints
 

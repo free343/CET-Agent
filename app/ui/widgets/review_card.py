@@ -25,6 +25,10 @@ from app.services.lexical_fact_view import LexicalFactSection, LinkedWordReferen
 from app.ui.widgets.english_quiz_widget import EnglishQuizWidget
 from app.ui.widgets.lexical_link_label import LexicalLinkLabel
 from app.ui.widgets.meaning_quiz_widget import MeaningQuizWidget
+from app.ui.widgets.pronunciation_widgets import (
+    PronunciationInstallButton,
+    PronunciationPlayButton,
+)
 
 
 class ReviewCardWidget(QFrame):
@@ -42,6 +46,7 @@ class ReviewCardWidget(QFrame):
         on_rating: Callable[[Rating], None],
         on_report_learning_aid: Callable[[], None] | None = None,
         on_linked_word: Callable[[LinkedWordReference], None] | None = None,
+        pronunciation_player: object | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("Card")
@@ -53,6 +58,10 @@ class ReviewCardWidget(QFrame):
         self.phase_label.setStyleSheet("color: #64748b; font-weight: 600;")
         self.word_label = self._centered_label("准备开始", "Word")
         self.phonetic_label = self._centered_label("", "Phonetic")
+        self.pronunciation_button = PronunciationPlayButton(pronunciation_player)
+        self.pronunciation_install_button = PronunciationInstallButton(
+            pronunciation_player
+        )
         self.favorite_button = QPushButton("☆ 收藏")
         self.favorite_button.setObjectName("FavoriteButton")
         self.favorite_button.clicked.connect(on_favorite)
@@ -200,7 +209,13 @@ class ReviewCardWidget(QFrame):
         layout.addStretch()
         layout.addWidget(self.phase_label)
         layout.addWidget(self.word_label)
-        layout.addWidget(self.phonetic_label)
+        phonetic_row = QHBoxLayout()
+        phonetic_row.addStretch()
+        phonetic_row.addWidget(self.phonetic_label)
+        phonetic_row.addWidget(self.pronunciation_button)
+        phonetic_row.addWidget(self.pronunciation_install_button)
+        phonetic_row.addStretch()
+        layout.addLayout(phonetic_row)
         status_row = QHBoxLayout()
         status_row.addStretch()
         status_row.addWidget(self.favorite_button)
@@ -221,6 +236,13 @@ class ReviewCardWidget(QFrame):
         layout.addLayout(rating_row)
         layout.addWidget(self.undo_button, alignment=Qt.AlignmentFlag.AlignCenter)
         layout.addStretch()
+
+    def set_pronunciation_word(self, word: str, *, enabled: bool = True) -> None:
+        """Set the safe-to-speak target for the current card generation."""
+        self.pronunciation_button.set_word(word, enabled=enabled)
+
+    def clear_pronunciation(self) -> None:
+        self.pronunciation_button.clear_word()
 
     def show_learning_aids(
         self,
