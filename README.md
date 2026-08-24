@@ -113,7 +113,7 @@ macOS/Linux 激活命令为 `source .venv/bin/activate`，复制配置可使用 
 python main.py
 ```
 
-第一次运行会自动创建 `data/cet_agent.db`，按顺序升级到当前 schema v13，并导入 13 条人工示例词、4,598 条开放 CET 词汇及其 4,611 条三阶段学习状态。`STUDY_LEVEL=CET4` 或 `CET6` 决定学习/复习队列、提醒和仪表盘统计的范围；每个级别在首次实际启用时独立按词频每天最多释放默认 20 个从未复习的开放词条（可用 `DAILY_NEW_WORD_LIMIT` 调整），因此安装很久后再切换等级也不会瞬间形成数千条积压；该设置只对尚未启用的等级生效。“学习新词”按持久化熟练度 0→3 轮转，完成当前组后，可在完成页主动领取默认 5 个同等级新词；`NEW_WORD_GROUP_SIZE` 和 `EXTRA_NEW_WORD_COUNT` 可在边界内调整。达到熟练度 3 的词恰好在 24 小时后进入正式到期复习；“自由复习”只读取已有学习历史并写独立练习日志。人工示例词保持立即可用，已有复习历史、熟练度、收藏和 FSRS 状态绝不会因等级切换或自由练习而移动。标记“完全掌握”的词从所有主动任务中排除，可在“已掌握单词”页面恢复。升级和导入均可重复执行；升级失败会回滚，数据库版本高于应用支持范围时会拒绝启动，避免旧程序误写新结构。
+第一次运行会自动创建 `data/cet_agent.db`，按顺序升级到当前 schema v14，并导入 13 条人工示例词、4,598 条开放 CET 词汇及其 4,611 条三阶段学习状态。`STUDY_LEVEL=CET4` 或 `CET6` 决定学习/复习队列、提醒和仪表盘统计的范围；每个级别在首次实际启用时独立按词频每天最多释放默认 20 个从未复习的开放词条（可用 `DAILY_NEW_WORD_LIMIT` 调整），因此安装很久后再切换等级也不会瞬间形成数千条积压；该设置只对尚未启用的等级生效。“学习新词”按持久化熟练度 0→3 轮转，完成当前组后，可在完成页主动领取默认 5 个同等级新词；`NEW_WORD_GROUP_SIZE` 和 `EXTRA_NEW_WORD_COUNT` 可在边界内调整。达到熟练度 3 的词恰好在 24 小时后进入正式到期复习；“自由复习”只读取已有学习历史并写独立练习日志。人工示例词保持立即可用，已有复习历史、熟练度、收藏和 FSRS 状态绝不会因等级切换或自由练习而移动。标记“完全掌握”的词从所有主动任务中排除，可在“已掌握单词”页面恢复。升级和导入均可重复执行；schema v14 会安全移除没有任何正式或候选内容的历史占位行；升级失败会回滚，数据库版本高于应用支持范围时会拒绝启动，避免旧程序误写新结构。
 
 学习概览把“待学新词”和“到期复习”分开计数。若检测到真实 `ReviewLog` 晚于当前系统时间 5 分钟以上，界面会提示先校准 Windows 日期、时间和时区；应用会排除这些未来事件对今日统计的影响，但不会擅自改写用户历史。
 
@@ -215,7 +215,7 @@ python -m ruff format --check app scripts tests main.py
 python -m mypy
 ```
 
-测试覆盖 FSRS-6 官方参考向量、schema v11 升级、三阶段新词/到期复习队列分流、完全掌握排除与恢复、不会改写 FSRS 的自由练习日志、确定性四选一、主动加练、未来时钟异常提示、右侧上下文助手、收藏词本、学习辅助状态与反馈、UI 学习闭环、编辑距离、四类关系分数、Embedding 缓存、图连通分量、AI JSON 校验与缓存，以及提醒策略。无显示环境可做启动检查：
+测试覆盖 FSRS-6 官方参考向量、schema v14 升级与空占位清理、三阶段新词/到期复习队列分流、完全掌握排除与恢复、不会改写 FSRS 的自由练习日志、确定性四选一、主动加练、未来时钟异常提示、右侧上下文助手、收藏词本、学习辅助状态与反馈、UI 学习闭环、编辑距离、四类关系分数、Embedding 缓存、图连通分量、AI JSON 校验与缓存，以及提醒策略。无显示环境可做启动检查：
 
 ```powershell
 $env:QT_QPA_PLATFORM='offscreen'
@@ -241,7 +241,7 @@ python scripts/benchmark_confusion_graph.py
 ## 关键技术决策
 
 - SQLite 时间通过自定义 SQLAlchemy 类型统一存储为 UTC，并在读取时恢复时区；
-- 数据库使用单行 `schema_version` 和显式连续迁移注册表；当前 schema v11 增加 `word_acquisition_states`、追加式 `acquisition_attempts` 和可撤销的 `mastered_words`；SQLite 升级前获取写锁，并在同一事务中更新结构与版本；
+- 数据库使用单行 `schema_version` 和显式连续迁移注册表；当前 schema v14 包含 `word_acquisition_states`、追加式 `acquisition_attempts`、可撤销的 `mastered_words`、隔离候选关系列，以及对双层空词卡占位行的安全清理；SQLite 升级前获取写锁，并在同一事务中更新结构与版本；
 - 调度边界使用 MIT 许可的 [`py-fsrs` 6.3.2](https://github.com/open-spaced-repetition/py-fsrs)：目标记忆率 90%，学习与重学各使用一个 10 分钟步骤，并关闭 interval fuzzing 以保持确定性；
 - `LearningState` 持久化 FSRS Learning/Review/Relearning 状态和步骤，schema v2 会把旧的已复习卡安全接管为 Review；
 - 三阶段新词学习只写 `AcquisitionAttempt`，熟练度 3 完成时把第一次正式复习安排在恰好 +24 小时；正式学习/复习写 `ReviewLog` 并推进 FSRS；自由复习只写 schema v10 的 `practice_logs`，三类历史在数据库和服务边界上隔离；

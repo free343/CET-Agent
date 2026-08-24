@@ -666,6 +666,85 @@ def test_version_twelve_adds_relation_candidate_columns(tmp_path) -> None:
         database.dispose()
 
 
+def test_version_thirteen_prunes_only_empty_lexical_fact_placeholders(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 13)"
+            )
+            connection.exec_driver_sql("CREATE TABLE words (id INTEGER PRIMARY KEY)")
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE word_lexical_facts (
+                    word_id INTEGER PRIMARY KEY,
+                    forms_json TEXT NOT NULL DEFAULT '[]',
+                    relations_json TEXT NOT NULL DEFAULT '[]',
+                    forms_status VARCHAR(30) NOT NULL DEFAULT 'missing',
+                    relations_status VARCHAR(30) NOT NULL DEFAULT 'missing',
+                    source VARCHAR(120) NOT NULL DEFAULT '',
+                    content_hash VARCHAR(64) NOT NULL DEFAULT '',
+                    candidate_relations_json TEXT NOT NULL DEFAULT '[]',
+                    candidate_status VARCHAR(30) NOT NULL DEFAULT 'missing',
+                    candidate_source VARCHAR(120) NOT NULL DEFAULT '',
+                    candidate_content_hash VARCHAR(64) NOT NULL DEFAULT '',
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                """
+                INSERT INTO word_lexical_facts (word_id) VALUES (1), (2), (3)
+                """
+            )
+            connection.exec_driver_sql(
+                """
+                UPDATE word_lexical_facts
+                SET candidate_status = 'candidate_only',
+                    candidate_relations_json = '[{"relation_type":"synonym"}]'
+                WHERE word_id = 2
+                """
+            )
+            connection.exec_driver_sql(
+                """
+                UPDATE word_lexical_facts
+                SET forms_status = 'source_validated', forms_json = '[{}]'
+                WHERE word_id = 3
+                """
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+        with database.engine.connect() as connection:
+            retained = (
+                connection.exec_driver_sql(
+                    "SELECT word_id FROM word_lexical_facts ORDER BY word_id"
+                )
+                .scalars()
+                .all()
+            )
+        assert retained == [2, 3]
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+        with database.engine.connect() as connection:
+            assert (
+                connection.exec_driver_sql(
+                    "SELECT COUNT(*) FROM word_lexical_facts"
+                ).scalar_one()
+                == 2
+            )
+    finally:
+        database.dispose()
+
+
 def test_newer_database_version_is_rejected(tmp_path) -> None:
     database = make_database(tmp_path)
     try:

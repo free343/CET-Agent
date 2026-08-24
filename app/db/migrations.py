@@ -225,6 +225,47 @@ def _add_word_lexical_relation_candidates(connection: Connection) -> None:
             )
 
 
+def _prune_empty_word_lexical_facts(connection: Connection) -> None:
+    """Remove legacy rows with no formal or pending learner projection.
+
+    The compact importer already skips validated records that contain no
+    forms/relations.  This migration removes only the older placeholder rows;
+    candidate-only rows and any row with a non-empty formal projection remain
+    available for diagnostics and deterministic query behavior.
+    """
+
+    tables = set(inspect(connection).get_table_names())
+    if not {"word_lexical_facts", "words"}.issubset(tables):
+        return
+    columns = {
+        column["name"]
+        for column in inspect(connection).get_columns("word_lexical_facts")
+    }
+    required = {
+        "forms_json",
+        "relations_json",
+        "forms_status",
+        "relations_status",
+        "candidate_relations_json",
+        "candidate_status",
+    }
+    if not required.issubset(columns):
+        return
+    connection.execute(
+        text(
+            """
+            DELETE FROM word_lexical_facts
+            WHERE forms_json = '[]'
+              AND relations_json = '[]'
+              AND forms_status = 'missing'
+              AND relations_status = 'missing'
+              AND candidate_relations_json = '[]'
+              AND candidate_status = 'missing'
+            """
+        )
+    )
+
+
 MIGRATIONS: dict[int, Migration] = {
     1: _create_initial_schema,
     2: _add_fsrs_card_state,
@@ -239,6 +280,7 @@ MIGRATIONS: dict[int, Migration] = {
     11: _add_acquisition_and_mastery_state,
     12: _add_word_lexical_facts,
     13: _add_word_lexical_relation_candidates,
+    14: _prune_empty_word_lexical_facts,
 }
 CURRENT_SCHEMA_VERSION = max(MIGRATIONS)
 
