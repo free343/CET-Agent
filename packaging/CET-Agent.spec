@@ -15,6 +15,12 @@ data_files = (
     (project_root / "data" / "word_learning_aids.provenance.json", "data"),
     (project_root / "data" / "word_lexical_facts.jsonl", "data"),
     (project_root / "data" / "word_lexical_facts.provenance.json", "data"),
+    (project_root / "data" / "word_lexical_relation_candidates.jsonl", "data"),
+    (
+        project_root / "data" / "word_lexical_relation_candidates.provenance.json",
+        "data",
+    ),
+    (project_root / "data" / "lexical_source_manifest.json", "data"),
     (project_root / ".env.example", "."),
     (project_root / "README.md", "."),
     (project_root / "THIRD_PARTY_NOTICES.md", "."),
@@ -34,8 +40,7 @@ a = Analysis(
     [str(project_root / "main.py")],
     pathex=[str(project_root)],
     binaries=[],
-    datas=[(str(source), target) for source, target in data_files]
-    + metadata_files,
+    datas=[(str(source), target) for source, target in data_files] + metadata_files,
     # The Windows notification backend is loaded with importlib so source mode
     # can remain portable when the platform-specific dependency is absent.
     hiddenimports=["windows_toasts"],

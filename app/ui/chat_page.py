@@ -245,10 +245,26 @@ class ChatPanel(QWidget):
             message_type="user",
         )
         assessment = self.service.route_question(question)
+        has_local_fact = False
+        lexical_preflight = getattr(
+            self.service, "has_deterministic_lexical_answer", None
+        )
+        if callable(lexical_preflight):
+            try:
+                has_local_fact = bool(
+                    lexical_preflight(
+                        question,
+                        context.content if context is not None else None,
+                    )
+                )
+            except (AttributeError, TypeError, RuntimeError, ValueError):
+                # Routing remains safe if a custom service cannot perform the
+                # optional preflight; the normal policy then applies.
+                has_local_fact = False
         selected_mode = self.model_selector.currentData()
         if selected_mode == MODEL_MODE_ADVANCED:
             self._start_request(True)
-        elif selected_mode == MODEL_MODE_LOCAL:
+        elif selected_mode == MODEL_MODE_LOCAL or has_local_fact:
             self._start_request(False)
         elif assessment.route is QueryRoute.CONFIRM_ADVANCED:
             self.routing_reason.setText(f"{assessment.reason} 是否使用高级模型回答？")
@@ -299,20 +315,29 @@ class ChatPanel(QWidget):
         if not self._pending_request_is_current():
             return
         suffix = "（降级响应）" if answer.degraded else ""
-        if answer.model in {
+        deterministic_models = {
             "deterministic-memory",
             "deterministic-lexical-fact",
+            "deterministic-lexical-candidate",
             "scope-policy",
-        }:
+        }
+        if answer.model in deterministic_models:
             metadata = "本地规则 · 无模型调用"
+            if answer.model == "deterministic-lexical-candidate":
+                metadata += " · 来源候选待审核"
         elif self._pending_use_advanced:
             metadata = f"高级模型 · {answer.model}{suffix}"
         else:
             metadata = f"本地模型 · {answer.model}{suffix}"
+        message_type = (
+            "assistant"
+            if not answer.degraded or answer.model == "deterministic-lexical-candidate"
+            else "error"
+        )
         self._append_message(
             "CET-Agent",
             f"{answer.text}\n{metadata}",
-            message_type="assistant" if not answer.degraded else "error",
+            message_type=message_type,
         )
         if (
             self.pending_question
@@ -333,6 +358,7 @@ class ChatPanel(QWidget):
             not in {
                 "deterministic-memory",
                 "deterministic-lexical-fact",
+                "deterministic-lexical-candidate",
                 "scope-policy",
             }
             and self.service.advanced_available

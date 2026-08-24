@@ -305,16 +305,18 @@ class ReviewCardWidget(QFrame):
             label.setText(self._format_learning_aids(section.items))
             section_status = (
                 "AI · 已反馈"
-                if feedback_reported and not section.verified
+                if feedback_reported and not section.verified and section.reportable
                 else section.status
             )
             self._learning_aid_titles[key].setText(
                 f"{section.title} · {section_status}"
             )
-        has_unreviewed = any(not section.verified for section in sections)
+        has_unreviewed = any(
+            not section.verified and section.reportable for section in sections
+        )
         if has_unreviewed:
             reported = feedback_reported or any(
-                "已反馈" in section.status for section in sections
+                "已反馈" in section.status for section in sections if section.reportable
             )
             self.learning_aid_status_label.setText(
                 "AI · 已反馈" if reported else "AI · 未审核"

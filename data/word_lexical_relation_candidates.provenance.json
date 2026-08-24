@@ -1,19 +1,21 @@
 {
   "artifact": {
     "counts": {
-      "antonym_groups": 112,
-      "excluded_multiple_senses": 542,
-      "groups": 1237,
-      "items": 1777,
-      "no_aligned_sense": 2846,
-      "selected_single_sense": 1223,
-      "synonym_groups": 1125,
+      "antonym_groups": 537,
+      "excluded_multiple_senses": 0,
+      "groups": 4318,
+      "items": 8447,
+      "no_aligned_sense": 2023,
+      "selected_aligned_senses": 947,
+      "selected_single_sense": 1550,
+      "synonym_groups": 3781,
       "total": 4611,
-      "unique_relation_targets": 1251
+      "truncated_aligned_senses": 91,
+      "unique_relation_targets": 4840
     },
     "file": "word_lexical_relation_candidates.jsonl",
     "rows": 4611,
-    "sha256": "f41e9872028c57b0a6837d955166bed5797e96ad8ba61cb64348159ea288eb0c"
+    "sha256": "2265860663bacfac173a58eaf1b0442fed212ce4a0fcf02f34618159c836c046"
   },
   "candidate_status": "candidate_only",
   "schema_version": 1,
@@ -44,5 +46,5 @@
       "version": "2.0"
     }
   ],
-  "transformation": "wordnet-cow-relation-candidates-v1; one Chinese-overlap-aligned WordNet sense at most, single-word in-bank targets, ECDICT frequency greater than zero, and at most six targets per relation type"
+  "transformation": "wordnet-cow-relation-candidates-v2; Chinese-overlap-aligned WordNet senses, single-word ECDICT targets (including outside-bank reference words), ECDICT frequency greater than zero, at most six targets per relation type, and at most four groups per headword"
 }

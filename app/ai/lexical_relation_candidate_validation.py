@@ -1,4 +1,4 @@
-"""Strict validation for candidate-only WordNet/COW relation evidence."""
+"""Strict validation for source-backed WordNet/COW relation evidence."""
 
 from __future__ import annotations
 
@@ -88,11 +88,16 @@ def validate_record(
         errors.append(f"{record.word}: source manifest hash does not match")
     if record.content_hash != lexical_relation_candidate_content_hash(record):
         errors.append(f"{record.word}: content_hash does not match canonical content")
-    if record.selection_status != "selected_single_sense" and record.groups:
+    selected_statuses = {
+        "selected_single_sense",
+        "selected_aligned_senses",
+        "truncated_aligned_senses",
+    }
+    if record.selection_status not in selected_statuses and record.groups:
         errors.append(
             f"{record.word}: excluded relation candidate cannot contain groups"
         )
-    if record.selection_status == "selected_single_sense" and not record.groups:
+    if record.selection_status in selected_statuses and not record.groups:
         errors.append(
             f"{record.word}: selected relation candidate must contain a group"
         )
@@ -211,6 +216,8 @@ def validate_records(
     report.stats = {
         "total": len(records),
         "selected_single_sense": status_counts["selected_single_sense"],
+        "selected_aligned_senses": status_counts["selected_aligned_senses"],
+        "truncated_aligned_senses": status_counts["truncated_aligned_senses"],
         "excluded_multiple_senses": status_counts["excluded_multiple_senses"],
         "no_aligned_sense": status_counts["no_aligned_sense"],
         "groups": sum(len(record.groups) for record in records),
@@ -278,6 +285,155 @@ def load_lexical_relation_candidate_records(
             f"{jsonl_path.name} failed validation: {'; '.join(report.errors[:20])}"
         )
     return records
+
+
+def load_runtime_lexical_relation_candidates(
+    jsonl_path: Path,
+    provenance_path: Path,
+    *,
+    expected_words: set[str] | None = None,
+    manifest_path: Path | None = None,
+) -> list[LexicalRelationCandidateRecord]:
+    """Load the packaged candidate overlay without downloading source files.
+
+    The offline validator performs the expensive source replay.  Startup still
+    repeats the artifact hash, canonical record hash, complete-word-set, and
+    provenance checks before candidate data can enter SQLite.  This keeps a
+    packaged/stale/partially copied artifact from silently becoming learner
+    content while avoiding network or dictionary access in the desktop app.
+    """
+    if not jsonl_path.exists():
+        return []
+    try:
+        records = load_lexical_relation_candidate_records(jsonl_path)
+    except (OSError, LexicalRelationCandidateDataError) as exc:
+        raise LexicalRelationCandidateDataError(str(exc)) from exc
+
+    seen: set[str] = set()
+    for record in records:
+        if record.word in seen:
+            raise LexicalRelationCandidateDataError(
+                f"duplicate runtime relation candidate record: {record.word}"
+            )
+        seen.add(record.word)
+        if record.candidate_status != "candidate_only":
+            raise LexicalRelationCandidateDataError(
+                f"{record.word}: runtime candidate status is not candidate_only"
+            )
+        if record.source != RELATION_CANDIDATE_SOURCE:
+            raise LexicalRelationCandidateDataError(
+                f"{record.word}: unexpected runtime candidate source"
+            )
+        if record.content_hash != lexical_relation_candidate_content_hash(record):
+            raise LexicalRelationCandidateDataError(
+                f"{record.word}: runtime candidate content hash does not match"
+            )
+
+    if expected_words is not None:
+        observed = set(seen)
+        missing = sorted(expected_words - observed)
+        extra = sorted(observed - expected_words)
+        if missing or extra or len(records) != len(expected_words):
+            detail: list[str] = []
+            if missing:
+                detail.append(f"missing={', '.join(missing[:8])}")
+            if extra:
+                detail.append(f"extra={', '.join(extra[:8])}")
+            detail.append(f"rows={len(records)} expected={len(expected_words)}")
+            raise LexicalRelationCandidateDataError(
+                "runtime relation candidate word set mismatch: " + "; ".join(detail)
+            )
+
+    _validate_runtime_candidate_provenance(
+        provenance_path,
+        jsonl_path,
+        manifest_path=manifest_path,
+        record_count=len(records),
+        stats=_runtime_candidate_stats(records),
+    )
+    return records
+
+
+def _runtime_candidate_stats(
+    records: Sequence[LexicalRelationCandidateRecord],
+) -> dict[str, int]:
+    relation_counts: Counter[str] = Counter()
+    status_counts: Counter[str] = Counter()
+    targets: set[str] = set()
+    groups = 0
+    items = 0
+    for record in records:
+        status_counts[record.selection_status] += 1
+        groups += len(record.groups)
+        for group in record.groups:
+            relation_counts[group.relation_type] += 1
+            items += len(group.items)
+            targets.update(item.word for item in group.items)
+    return {
+        "total": len(records),
+        "selected_single_sense": status_counts["selected_single_sense"],
+        "selected_aligned_senses": status_counts["selected_aligned_senses"],
+        "truncated_aligned_senses": status_counts["truncated_aligned_senses"],
+        "excluded_multiple_senses": status_counts["excluded_multiple_senses"],
+        "no_aligned_sense": status_counts["no_aligned_sense"],
+        "groups": groups,
+        "items": items,
+        "synonym_groups": relation_counts["synonym"],
+        "antonym_groups": relation_counts["antonym"],
+        "unique_relation_targets": len(targets),
+    }
+
+
+def _validate_runtime_candidate_provenance(
+    provenance_path: Path,
+    jsonl_path: Path,
+    *,
+    manifest_path: Path | None,
+    record_count: int,
+    stats: dict[str, int],
+) -> None:
+    if not provenance_path.exists():
+        raise LexicalRelationCandidateDataError(
+            "runtime relation candidate provenance file is missing"
+        )
+    try:
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        if provenance.get("schema_version") != 1:
+            raise ValueError("unsupported provenance schema")
+        if provenance.get("candidate_status") != "candidate_only":
+            raise ValueError("candidate status is not candidate_only")
+        artifact = provenance["artifact"]
+        if artifact["file"] != jsonl_path.name:
+            raise ValueError("provenance artifact filename does not match")
+        if artifact["sha256"] != _digest(jsonl_path):
+            raise ValueError("provenance artifact hash does not match")
+        if int(artifact["rows"]) != record_count:
+            raise ValueError("provenance row count does not match")
+        expected_stats = dict(artifact["counts"])
+        # Older pilot files did not include the explicit multi-sense counters;
+        # the current expanded artifact does.  Compare only keys that exist in
+        # the artifact while still rejecting a changed value.
+        for key, value in expected_stats.items():
+            if stats.get(key) != value:
+                raise ValueError(f"provenance count does not match: {key}")
+        if manifest_path is not None:
+            source_manifest = provenance["source_manifest"]
+            if source_manifest["file"] != manifest_path.name:
+                raise ValueError("provenance manifest filename does not match")
+            if source_manifest["sha256"] != _digest(manifest_path):
+                raise ValueError("provenance manifest hash does not match")
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+        raise LexicalRelationCandidateDataError(
+            f"invalid runtime relation-candidate provenance: {exc}"
+        ) from exc
+
+
+def _digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _validate_evidence(

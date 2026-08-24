@@ -1,4 +1,4 @@
-"""Contract tests for the candidate-only WordNet/COW relation pilot."""
+"""Contract tests for the source-backed WordNet/COW relation overlay."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.ai.lexical_relation_candidate_validation import (
     lexical_relation_candidate_content_hash,
+    load_runtime_lexical_relation_candidates,
     validate_records,
 )
 from app.ai.lexical_source_validation import load_lexical_source_manifest
@@ -114,3 +115,21 @@ def test_relation_pilot_rejects_unaligned_sense() -> None:
     )
     assert record.selection_status == "no_aligned_sense"
     assert record.groups == []
+
+
+def test_runtime_candidate_overlay_is_complete_and_hash_checked() -> None:
+    rows = load_vocabulary_rows(ROOT / "data" / "sample_words.csv")
+    rows += load_vocabulary_rows(ROOT / "data" / "cet_vocabulary_open.csv")
+    records = load_runtime_lexical_relation_candidates(
+        ROOT / "data" / "word_lexical_relation_candidates.jsonl",
+        ROOT / "data" / "word_lexical_relation_candidates.provenance.json",
+        expected_words={row.word for row in rows},
+        manifest_path=ROOT / "data" / "lexical_source_manifest.json",
+    )
+    synonym_words = {
+        record.word
+        for record in records
+        if any(group.relation_type == "synonym" for group in record.groups)
+    }
+    assert len(records) == 4611
+    assert len(synonym_words) >= 2400

@@ -7,7 +7,7 @@ import logging
 from collections import Counter
 from collections.abc import Sequence
 
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -22,6 +22,7 @@ from app.ai.schemas import (
     ClusterAnalysisResult,
     Exercise,
     LexicalFactRecord,
+    LexicalRelationCandidateGroup,
     LexicalSectionStatus,
     WordExplanation,
 )
@@ -43,6 +44,8 @@ from app.services.analysis_service import ConfusionCluster
 from app.utils.text_utils import stable_json_hash
 
 logger = logging.getLogger(__name__)
+
+_CANDIDATE_GROUP_ADAPTER = TypeAdapter(LexicalRelationCandidateGroup)
 
 
 def _context_word(context: str | None) -> str | None:
@@ -86,6 +89,20 @@ class AIService:
 
     def route_question(self, question: str) -> QueryAssessment:
         return self.routing_policy.assess(question)
+
+    def has_deterministic_lexical_answer(
+        self,
+        question: str,
+        context: str | None = None,
+    ) -> bool:
+        """Expose a cheap UI preflight for facts already present locally."""
+        query = self._lexical_fact_query
+        if query is None:
+            query = self._load_lexical_fact_query()
+            self._lexical_fact_query = query
+        if not query.has_records:
+            return False
+        return query.can_answer(question, word=_context_word(context))
 
     def ask(
         self,
@@ -171,6 +188,7 @@ class AIService:
 
     def _load_lexical_fact_query(self) -> LexicalFactQuery:
         records: list[LexicalFactRecord] = []
+        candidate_relations: dict[str, tuple[LexicalRelationCandidateGroup, ...]] = {}
         try:
             with self.database.session() as session:
                 rows = session.execute(
@@ -179,6 +197,21 @@ class AIService:
                     )
                 ).all()
                 for fact, word in rows:
+                    if fact.candidate_status == "candidate_only":
+                        try:
+                            raw_candidates = json.loads(fact.candidate_relations_json)
+                            if isinstance(raw_candidates, list):
+                                candidate_relations[word.word] = tuple(
+                                    _CANDIDATE_GROUP_ADAPTER.validate_python(item)
+                                    for item in raw_candidates
+                                )
+                        except (TypeError, ValueError, ValidationError):
+                            logger.warning(
+                                "Ignoring malformed lexical relation candidates "
+                                "word_id=%s",
+                                fact.word_id,
+                                exc_info=True,
+                            )
                     try:
                         records.append(
                             LexicalFactRecord(
@@ -205,7 +238,7 @@ class AIService:
                         )
         except Exception:
             logger.warning("Unable to load persisted lexical facts", exc_info=True)
-        return LexicalFactQuery(records)
+        return LexicalFactQuery(records, candidate_relations=candidate_relations)
 
     def analyze_cluster(self, cluster: ConfusionCluster) -> ClusterAnalysisResult:
         payload = {

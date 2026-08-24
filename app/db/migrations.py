@@ -199,6 +199,32 @@ def _add_word_lexical_facts(connection: Connection) -> None:
     WordLexicalFact.__table__.create(bind=connection, checkfirst=True)
 
 
+def _add_word_lexical_relation_candidates(connection: Connection) -> None:
+    """Add an isolated, review-pending relation projection.
+
+    Candidate relations are deliberately not stored in the formal JSON
+    columns.  This lets the application expose broad source-backed coverage
+    while keeping the verified lexical-fact contract and its hashes stable.
+    """
+    if "word_lexical_facts" not in inspect(connection).get_table_names():
+        return
+    columns = {
+        column["name"]
+        for column in inspect(connection).get_columns("word_lexical_facts")
+    }
+    additions = {
+        "candidate_relations_json": "TEXT NOT NULL DEFAULT '[]'",
+        "candidate_status": "VARCHAR(30) NOT NULL DEFAULT 'missing'",
+        "candidate_source": "VARCHAR(120) NOT NULL DEFAULT ''",
+        "candidate_content_hash": "VARCHAR(64) NOT NULL DEFAULT ''",
+    }
+    for name, sql_type in additions.items():
+        if name not in columns:
+            connection.exec_driver_sql(
+                f"ALTER TABLE word_lexical_facts ADD COLUMN {name} {sql_type}"
+            )
+
+
 MIGRATIONS: dict[int, Migration] = {
     1: _create_initial_schema,
     2: _add_fsrs_card_state,
@@ -212,6 +238,7 @@ MIGRATIONS: dict[int, Migration] = {
     10: _add_practice_logs,
     11: _add_acquisition_and_mastery_state,
     12: _add_word_lexical_facts,
+    13: _add_word_lexical_relation_candidates,
 }
 CURRENT_SCHEMA_VERSION = max(MIGRATIONS)
 

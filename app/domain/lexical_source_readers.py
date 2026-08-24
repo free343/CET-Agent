@@ -58,7 +58,7 @@ def parse_exchange(raw: str) -> dict[str, tuple[str, ...]]:
 
 
 def parse_ecdict(
-    source: TextIO, target_words: set[str]
+    source: TextIO, target_words: set[str] | None
 ) -> tuple[dict[str, ECDICTEntry], Counter[str]]:
     reader = csv.DictReader(source)
     required = {"word", "pos", "definition", "translation", "exchange"}
@@ -69,7 +69,7 @@ def parse_ecdict(
     codes: Counter[str] = Counter()
     for row in reader:
         word = (row.get("word") or "").strip().casefold()
-        if word not in target_words:
+        if target_words is not None and word not in target_words:
             continue
         if word in entries:
             raise ValueError(f"ECDICT contains a duplicate target headword: {word}")

@@ -7,11 +7,13 @@ from dataclasses import dataclass
 
 from pydantic import TypeAdapter, ValidationError
 
-from app.ai.schemas import LexicalParadigm
+from app.ai.schemas import LexicalParadigm, LexicalRelationCandidateGroup
 from app.db.models import WordLearningAid, WordLexicalFact
+from app.domain.lexical_display import format_part_of_speech
 from app.services.learning_aid_view import format_collocations, format_word_family
 
 _PARADIGM_ADAPTER = TypeAdapter(LexicalParadigm)
+_CANDIDATE_GROUP_ADAPTER = TypeAdapter(LexicalRelationCandidateGroup)
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +23,7 @@ class LexicalFactSection:
     items: tuple[str, ...]
     status: str
     verified: bool
+    reportable: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +63,12 @@ def build_lexical_facts_view(
     sections: list[LexicalFactSection] = []
     forms_status = fact.forms_status if fact is not None else "missing"
     relations_status = fact.relations_status if fact is not None else "missing"
+    if (
+        fact is not None
+        and fact.candidate_status == "candidate_only"
+        and relations_status == "missing"
+    ):
+        relations_status = "candidate_only"
     form_items = _format_forms(fact)
     if form_items:
         sections.append(
@@ -85,14 +94,31 @@ def build_lexical_facts_view(
         )
 
     relation_items = _format_relations(fact)
+    candidate_relation_items = _format_relation_candidates(
+        fact,
+        excluded_words=_relation_words(fact),
+    )
+    relation_items = _unique_trimmed(
+        [*relation_items, *candidate_relation_items],
+        8,
+    )
     if relation_items:
+        has_formal_relations = bool(_format_relations(fact))
+        has_candidate_relations = bool(candidate_relation_items)
+        if has_candidate_relations and has_formal_relations:
+            relation_status = "已验证 + 来源候选"
+        elif has_candidate_relations:
+            relation_status = "来源候选 · 待审核"
+        else:
+            relation_status = "已验证"
         sections.append(
             LexicalFactSection(
                 key="relations",
                 title="近反义",
                 items=relation_items,
-                status="已验证",
-                verified=True,
+                status=relation_status,
+                verified=not has_candidate_relations,
+                reportable=False,
             )
         )
 
@@ -156,19 +182,73 @@ def _format_relations(fact: WordLexicalFact | None) -> tuple[str, ...]:
         if group.get("relation_type") == "derivative":
             continue
         relation = relation_labels.get(str(group.get("relation_type")), "关系")
-        pos = str(group.get("part_of_speech") or "").strip()
-        sense = str(group.get("sense") or "").strip()
-        prefix = " · ".join(value for value in (relation, pos, sense) if value)
+        pos = format_part_of_speech(str(group.get("part_of_speech") or ""))
         for item in group.get("items", []):
             if not isinstance(item, dict):
                 continue
             word = str(item.get("word") or "").strip()
             meaning = str(item.get("meaning") or "").strip()
-            note = str(item.get("note") or "").strip()
             if word and meaning:
-                suffix = f"；{note}" if note else ""
-                items.append(f"{prefix}：{word}｜{meaning}{suffix}")
+                details = " ".join(value for value in (word, pos, meaning) if value)
+                items.append(f"{relation}：{details}")
     return tuple(_unique_trimmed(items, 8))
+
+
+def _format_relation_candidates(
+    fact: WordLexicalFact | None,
+    *,
+    excluded_words: set[str],
+) -> tuple[str, ...]:
+    if fact is None or fact.candidate_status != "candidate_only":
+        return ()
+    try:
+        raw = json.loads(fact.candidate_relations_json)
+        if not isinstance(raw, list):
+            return ()
+        groups = [_CANDIDATE_GROUP_ADAPTER.validate_python(item) for item in raw]
+    except (TypeError, ValueError, ValidationError):
+        return ()
+    items: list[str] = []
+    relation_labels = {"synonym": "近义", "antonym": "反义"}
+    for group in groups:
+        relation = relation_labels.get(group.relation_type, "关系候选")
+        for item in group.items:
+            if item.word.casefold() in excluded_words:
+                continue
+            meaning = _clean_cow_label(item.meaning)
+            if item.word and meaning:
+                details = " ".join(
+                    value
+                    for value in (
+                        item.word,
+                        format_part_of_speech(group.part_of_speech),
+                        meaning,
+                    )
+                    if value
+                )
+                items.append(f"{relation}：{details}")
+    return tuple(_unique_trimmed(items, 8))
+
+
+def _relation_words(fact: WordLexicalFact | None) -> set[str]:
+    if fact is None:
+        return set()
+    try:
+        raw = json.loads(fact.relations_json)
+    except (TypeError, ValueError):
+        return set()
+    words: set[str] = set()
+    for group in raw if isinstance(raw, list) else []:
+        if not isinstance(group, dict):
+            continue
+        for item in group.get("items", []):
+            if isinstance(item, dict) and item.get("word"):
+                words.add(str(item["word"]).casefold())
+    return words
+
+
+def _clean_cow_label(value: str) -> str:
+    return " ".join(value.replace("+", "").split())
 
 
 def _format_derivatives(fact: WordLexicalFact | None) -> list[str]:

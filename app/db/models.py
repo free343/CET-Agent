@@ -379,6 +379,15 @@ class WordLexicalFact(Base):
     relations_status: Mapped[str] = mapped_column(String(30), default="missing")
     source: Mapped[str] = mapped_column(String(120), default="")
     content_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
+    # Source-backed relation candidates are kept in a separate projection so
+    # they can be shown with an explicit pending-review trust state without
+    # overwriting the formally validated relation artifact above.
+    candidate_relations_json: Mapped[str] = mapped_column(Text, default="[]")
+    candidate_status: Mapped[str] = mapped_column(String(30), default="missing")
+    candidate_source: Mapped[str] = mapped_column(String(120), default="")
+    candidate_content_hash: Mapped[str] = mapped_column(
+        String(64), default="", index=True
+    )
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         UTCDateTime(), default=utc_now, onupdate=utc_now

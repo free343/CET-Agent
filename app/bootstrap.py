@@ -10,7 +10,12 @@ from app.config import ENV_FILE, PROJECT_ROOT, RUNTIME_ROOT, Settings, settings
 from app.db.acquisition_seed import ensure_acquisition_states
 from app.db.database import Database
 from app.db.learning_aid_seed import load_learning_aid_records, seed_learning_aids
-from app.db.lexical_fact_seed import load_lexical_facts, seed_lexical_facts
+from app.db.lexical_fact_seed import (
+    load_lexical_facts,
+    load_lexical_relation_candidates,
+    seed_lexical_facts,
+    seed_lexical_relation_candidates,
+)
 from app.db.models import WordLevel
 from app.db.seed import (
     ensure_learning_states,
@@ -33,6 +38,13 @@ def initialize_database(app_settings: Settings = settings) -> Database:
         open_csv = PROJECT_ROOT / "data" / "cet_vocabulary_open.csv"
         aid_jsonl = PROJECT_ROOT / "data" / "word_learning_aids.jsonl"
         lexical_fact_jsonl = PROJECT_ROOT / "data" / "word_lexical_facts.jsonl"
+        relation_candidate_jsonl = (
+            PROJECT_ROOT / "data" / "word_lexical_relation_candidates.jsonl"
+        )
+        relation_candidate_provenance = (
+            PROJECT_ROOT / "data" / "word_lexical_relation_candidates.provenance.json"
+        )
+        lexical_manifest = PROJECT_ROOT / "data" / "lexical_source_manifest.json"
         curated_rows = load_vocabulary_rows(curated_csv)
         open_rows = load_vocabulary_rows(open_csv)
         aid_sources = [
@@ -61,6 +73,12 @@ def initialize_database(app_settings: Settings = settings) -> Database:
             sources=[*curated_rows, *open_rows],
             require_complete=True,
         )
+        lexical_relation_candidate_records = load_lexical_relation_candidates(
+            relation_candidate_jsonl,
+            relation_candidate_provenance,
+            expected_words={row.word for row in (*curated_rows, *open_rows)},
+            manifest_path=lexical_manifest,
+        )
         with database.session() as session:
             database.begin_serialized_write(session)
             inserted = sum(
@@ -76,10 +94,14 @@ def initialize_database(app_settings: Settings = settings) -> Database:
             )
             aid_written = seed_learning_aids(session, aid_records)
             lexical_fact_written = seed_lexical_facts(session, lexical_fact_records)
+            lexical_candidate_written = seed_lexical_relation_candidates(
+                session, lexical_relation_candidate_records
+            )
         logger.info(
             "Database initialized; schema_version=%s inserted_words=%s "
             "created_states=%s level=%s newly_activated=%s rebased_words=%s "
-            "acquisition_states=%s learning_aids=%s lexical_facts=%s",
+            "acquisition_states=%s learning_aids=%s lexical_facts=%s "
+            "lexical_relation_candidates=%s",
             schema_version,
             inserted,
             missing_states,
@@ -89,6 +111,7 @@ def initialize_database(app_settings: Settings = settings) -> Database:
             missing_acquisition_states,
             aid_written,
             lexical_fact_written,
+            lexical_candidate_written,
         )
         return database
     except Exception:

@@ -11,7 +11,10 @@ import json
 from PySide6.QtWidgets import QApplication
 
 from app.db.models import WordLexicalFact
-from app.services.lexical_fact_view import LexicalFactSection
+from app.services.lexical_fact_view import (
+    LexicalFactSection,
+    build_lexical_facts_view,
+)
 from app.services.review_service import ReviewService
 from app.ui.review_page import ReviewPage
 from app.ui.widgets.review_card import ReviewCardWidget
@@ -132,3 +135,106 @@ def test_review_assistant_receives_facts_only_after_answer_boundary(
     assert "词形=" in after.content
     assert "least" in after.content
     page.deleteLater()
+
+
+def test_source_candidate_relations_are_visible_with_pending_trust(
+    database, word_id
+) -> None:
+    with database.session() as session:
+        session.add(
+            WordLexicalFact(
+                word_id=word_id,
+                forms_json="[]",
+                relations_json="[]",
+                forms_status="missing",
+                relations_status="missing",
+                source="fixture",
+                content_hash="0" * 64,
+                candidate_relations_json=json.dumps(
+                    [
+                        {
+                            "relation_type": "synonym",
+                            "synset_id": "syn-adapt",
+                            "ili": "i-adapt",
+                            "part_of_speech": "verb",
+                            "sense": "适应",
+                            "items": [
+                                {
+                                    "word": "adjust",
+                                    "meaning": "调整；适应",
+                                    "english_definition": "change to fit",
+                                    "frequency": 100,
+                                    "evidence": [
+                                        {
+                                            "source_id": "oewn-2025",
+                                            "source_version": "2025",
+                                            "field": "synset.members",
+                                            "locator": "synset=syn-adapt",
+                                            "source_sha256": "b" * 64,
+                                        },
+                                        {
+                                            "source_id": "omw-cmn-2",
+                                            "source_version": "2.0",
+                                            "field": "synset.labels",
+                                            "locator": "ili=i-adapt",
+                                            "source_sha256": "c" * 64,
+                                        },
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                candidate_status="candidate_only",
+                candidate_source="wordnet-cow-relation-candidates-v2",
+                candidate_content_hash="a" * 64,
+            )
+        )
+    with database.session() as session:
+        fact = session.get(WordLexicalFact, word_id)
+        assert fact is not None
+        view = build_lexical_facts_view(fact, None)
+    relations = next(section for section in view.sections if section.key == "relations")
+    assert relations.items == ("近义：adjust v. 调整；适应",)
+    assert relations.status == "来源候选 · 待审核"
+    assert relations.verified is False
+    assert relations.reportable is False
+
+
+def test_formal_relation_display_omits_current_word_context(database, word_id) -> None:
+    with database.session() as session:
+        session.add(
+            WordLexicalFact(
+                word_id=word_id,
+                forms_json="[]",
+                relations_json=json.dumps(
+                    [
+                        {
+                            "relation_type": "synonym",
+                            "part_of_speech": "adjective",
+                            "sense": "当前词义项",
+                            "items": [
+                                {
+                                    "word": "primary",
+                                    "meaning": "主要的",
+                                    "note": "不在关系行中展示注释",
+                                }
+                            ],
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                forms_status="missing",
+                relations_status="source_validated",
+                source="fixture",
+                content_hash="0" * 64,
+            )
+        )
+    with database.session() as session:
+        fact = session.get(WordLexicalFact, word_id)
+        assert fact is not None
+        view = build_lexical_facts_view(fact, None)
+    relations = next(section for section in view.sections if section.key == "relations")
+    assert relations.items == ("近义：primary adj. 主要的",)
+    assert "当前词义项" not in relations.items[0]

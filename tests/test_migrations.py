@@ -608,10 +608,60 @@ def test_version_eleven_adds_lexical_fact_table(tmp_path) -> None:
             "relations_status",
             "source",
             "content_hash",
+            "candidate_relations_json",
+            "candidate_status",
+            "candidate_source",
+            "candidate_content_hash",
             "created_at",
             "updated_at",
         } == {column["name"] for column in inspector.get_columns("word_lexical_facts")}
         assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
+def test_version_twelve_adds_relation_candidate_columns(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 12)"
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE word_lexical_facts (
+                    word_id INTEGER PRIMARY KEY,
+                    forms_json TEXT NOT NULL DEFAULT '[]',
+                    relations_json TEXT NOT NULL DEFAULT '[]',
+                    forms_status VARCHAR(30) NOT NULL DEFAULT 'missing',
+                    relations_status VARCHAR(30) NOT NULL DEFAULT 'missing',
+                    source VARCHAR(120) NOT NULL DEFAULT '',
+                    content_hash VARCHAR(64) NOT NULL DEFAULT '',
+                    created_at DATETIME,
+                    updated_at DATETIME
+                )
+                """
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+        columns = {
+            column["name"]
+            for column in inspect(database.engine).get_columns("word_lexical_facts")
+        }
+        assert {
+            "candidate_relations_json",
+            "candidate_status",
+            "candidate_source",
+            "candidate_content_hash",
+        }.issubset(columns)
     finally:
         database.dispose()
 

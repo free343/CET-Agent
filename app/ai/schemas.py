@@ -379,6 +379,8 @@ class LexicalRelationCandidateRecord(StrictSchema):
     groups: list[LexicalRelationCandidateGroup] = Field(max_length=4)
     selection_status: Literal[
         "selected_single_sense",
+        "selected_aligned_senses",
+        "truncated_aligned_senses",
         "excluded_multiple_senses",
         "no_aligned_sense",
     ]

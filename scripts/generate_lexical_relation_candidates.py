@@ -1,4 +1,4 @@
-"""Generate the single-sense WordNet/COW relation-candidate pilot."""
+"""Generate the source-backed WordNet/COW relation-candidate overlay."""
 
 from __future__ import annotations
 
@@ -62,9 +62,12 @@ def generate(
         source_hashes[source_id] = source_file_sha256(path)
 
     vocabulary = _load_vocabulary()
-    target_words = {row.word for row in vocabulary}
     with source_paths["ecdict"].open("r", encoding="utf-8", newline="") as source:
-        ecdict, _ = parse_ecdict(source, target_words)
+        # Keep the full ECDICT index so a relation target may be displayed as
+        # a reference even when it is outside the CET learning bank.  Such a
+        # target never creates a Word or a scheduling obligation.
+        ecdict, _ = parse_ecdict(source, None)
+    target_words = {row.word for row in vocabulary}
     english = parse_english_wordnet(source_paths["oewn-2025"], target_words)
     chinese = parse_chinese_wordnet(source_paths["omw-cmn-2"])
     manifest_hash = source_file_sha256(manifest_path)
@@ -126,9 +129,10 @@ def generate(
             for source_id in sorted(required)
         ],
         "transformation": (
-            "wordnet-cow-relation-candidates-v1; one Chinese-overlap-aligned "
-            "WordNet sense at most, single-word in-bank targets, ECDICT frequency "
-            "greater than zero, and at most six targets per relation type"
+            "wordnet-cow-relation-candidates-v2; Chinese-overlap-aligned WordNet "
+            "senses, single-word ECDICT targets (including outside-bank reference "
+            "words), ECDICT frequency greater than zero, at most six targets per "
+            "relation type, and at most four groups per headword"
         ),
     }
     provenance_path.parent.mkdir(parents=True, exist_ok=True)

@@ -62,6 +62,24 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Open English WordNet 2025
+
+- Project: <https://en-word.net/>
+- Source revision: `2025` (SHA-256 pinned in `data/lexical_source_manifest.json`)
+- Copyright/attribution: The Open English WordNet Team, CC BY 4.0; derived from Princeton WordNet under the WordNet License.
+- License: CC BY 4.0 plus the Princeton WordNet license terms.
+- Use in CET-Agent: synset membership, explicit antonym links, and English sense evidence for the pending relation overlay. These values remain `candidate_only` until human review.
+- License reference: <https://raw.githubusercontent.com/globalwordnet/english-wordnet/2025-edition/LICENSE.md>
+
+## Chinese Open Wordnet 2.0
+
+- Project: <https://github.com/omwn/omw-data>
+- Source revision: `2.0` (SHA-256 pinned in `data/lexical_source_manifest.json`)
+- Copyright/attribution: Chinese Open Wordnet, Copyright 2013, 2014 Francis Bond and Shan Wang.
+- License: Chinese Open Wordnet license bundled in the source release.
+- Use in CET-Agent: Chinese sense labels aligned to Open English WordNet through shared ILI for the pending relation overlay. These values remain `candidate_only` until human review.
+- License reference: <https://github.com/omwn/omw-data/blob/main/wns/cow/LICENSE>
+
 ## FreeDict English-Chinese (eng-zho) 2025.11.23
 
 - Dictionary: <https://download.freedict.org/dictionaries/eng-zho/2025.11.23/>

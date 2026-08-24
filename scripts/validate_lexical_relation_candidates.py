@@ -58,9 +58,9 @@ def validate(
         verify_lexical_source_file(contracts[source_id], path)
 
     vocabulary = _load_vocabulary()
-    target_words = {row.word for row in vocabulary}
     with paths["ecdict"].open("r", encoding="utf-8", newline="") as source:
-        ecdict, _ = parse_ecdict(source, target_words)
+        ecdict, _ = parse_ecdict(source, None)
+    target_words = {row.word for row in vocabulary}
     english = parse_english_wordnet(paths["oewn-2025"], target_words)
     chinese = parse_chinese_wordnet(paths["omw-cmn-2"])
     manifest_hash = source_file_sha256(manifest_path)

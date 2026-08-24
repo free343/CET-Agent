@@ -261,6 +261,43 @@ def test_deterministic_local_rule_does_not_offer_model_retry() -> None:
     page.deleteLater()
 
 
+def test_source_candidate_answer_is_not_presented_as_a_model_failure() -> None:
+    class CandidateService(AdvancedRecordingChatService):
+        @staticmethod
+        def has_deterministic_lexical_answer(
+            _question: str,
+            _context: str | None = None,
+        ) -> bool:
+            return True
+
+        def ask(
+            self,
+            question: str,
+            *,
+            use_advanced: bool = False,
+            history=(),
+            context: str | None = None,
+        ) -> AIAnswer:
+            return AIAnswer(
+                text="近义：primary adj. 主要的",
+                confidence=1.0,
+                model="deterministic-lexical-candidate",
+                degraded=True,
+            )
+
+    app = QApplication.instance() or QApplication([])
+    page = ChatPage(CandidateService())
+    page.input.setText("main 有什么近义词？")
+    page.send()
+    _wait_until_idle(page, app)
+
+    transcript = page.transcript.toPlainText()
+    assert "本地规则 · 无模型调用 · 来源候选待审核" in transcript
+    assert "本地模型" not in transcript
+    assert page.upgrade_button.isHidden() is True
+    page.deleteLater()
+
+
 def test_chat_widgets_enforce_input_and_transcript_budgets() -> None:
     app = QApplication.instance() or QApplication([])
     page = ChatPage(LowConfidenceService())

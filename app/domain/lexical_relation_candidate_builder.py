@@ -1,7 +1,8 @@
 """Build a conservative WordNet/COW relation-candidate pilot.
 
-Only single-sense, Chinese-aligned groups with frequency-bounded targets in the
-bundled word bank are emitted.  The result is a review artifact and cannot be
+Chinese-aligned sense groups with frequency-bounded single-word ECDICT targets
+are emitted.  Multiple aligned senses remain grouped and bounded instead of
+being discarded wholesale.  The result is a review artifact and cannot be
 imported as a verified lexical relation without a later human promotion gate.
 """
 
@@ -24,7 +25,7 @@ from app.domain.lexical_source_readers import (
     SenseData,
 )
 
-RELATION_CANDIDATE_SOURCE = "wordnet-cow-relation-candidates-v1"
+RELATION_CANDIDATE_SOURCE = "wordnet-cow-relation-candidates-v2"
 MAX_RELATION_TARGET_FREQUENCY = 1_000_000
 _HEADWORD_PATTERN = re.compile(r"[a-z]+(?:[-'][a-z]+)*")
 _POS_LABELS = {
@@ -64,15 +65,22 @@ def build_relation_candidate_record(
         ecdict_version=ecdict_version,
         ecdict_sha256=ecdict_sha256,
     )
-    if not aligned_groups:
+    flattened_groups = [
+        group for sense_groups in aligned_groups for group in sense_groups
+    ]
+    selected_groups = _select_groups(flattened_groups)
+    if not selected_groups:
         selection_status = "no_aligned_sense"
         groups: list[LexicalRelationCandidateGroup] = []
-    elif len(aligned_groups) != 1:
-        selection_status = "excluded_multiple_senses"
-        groups = []
-    else:
+    elif len(aligned_groups) == 1:
         selection_status = "selected_single_sense"
-        groups = aligned_groups[0]
+        groups = selected_groups
+    elif len(selected_groups) < len(flattened_groups):
+        selection_status = "truncated_aligned_senses"
+        groups = selected_groups
+    else:
+        selection_status = "selected_aligned_senses"
+        groups = selected_groups
 
     record = LexicalRelationCandidateRecord(
         schema_version=1,
@@ -282,7 +290,7 @@ def _build_group(
                         source_sha256=ecdict_sha256,
                     ),
                 ],
-                note="仅保留词库内、频率大于 0 且词性兼容的候选；需人工审核。",
+                note="仅保留单词级、ECDICT 频率大于 0 且词性兼容的候选；关系可能超出 CET 词库，需人工审核。",
             )
             for word, entry in candidates
         ],
@@ -291,3 +299,36 @@ def _build_group(
 
 def _compact_labels(labels: tuple[str, ...]) -> str:
     return "；".join(label.strip() for label in labels[:3] if label.strip())[:160]
+
+
+def _select_groups(
+    groups: list[LexicalRelationCandidateGroup],
+) -> list[LexicalRelationCandidateGroup]:
+    """Keep the strongest four groups while preserving both relation types."""
+    if len(groups) <= 4:
+        return groups
+    unique: dict[tuple[str, str], LexicalRelationCandidateGroup] = {}
+    for group in groups:
+        unique.setdefault((group.relation_type, group.synset_id), group)
+    ordered = sorted(
+        unique.values(),
+        key=lambda group: (
+            -max(item.frequency for item in group.items),
+            0 if group.relation_type == "synonym" else 1,
+            group.synset_id,
+        ),
+    )
+    selected: list[LexicalRelationCandidateGroup] = []
+    for relation_type in ("synonym", "antonym"):
+        first = next(
+            (group for group in ordered if group.relation_type == relation_type),
+            None,
+        )
+        if first is not None:
+            selected.append(first)
+    for group in ordered:
+        if group not in selected:
+            selected.append(group)
+        if len(selected) >= 4:
+            break
+    return selected[:4]
