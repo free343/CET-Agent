@@ -25,6 +25,9 @@ class LinkedWordReference:
     meaning: str = ""
     english_definition: str = ""
     trust: str = "source_validated"
+    origin_word: str = ""
+    origin_meaning: str = ""
+    origin_relation: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +78,8 @@ def build_lexical_facts_view(
     aid: WordLearningAid | None,
     *,
     feedback_reported: bool = False,
+    origin_word: str = "",
+    origin_meaning: str = "",
 ) -> LexicalFactsView:
     """Return only non-empty sections, ordered by learner value."""
     sections: list[LexicalFactSection] = []
@@ -110,17 +115,29 @@ def build_lexical_facts_view(
             )
         )
 
-    relation_pairs = _relation_pairs(fact)
+    relation_pairs = _relation_pairs(
+        fact,
+        origin_word=origin_word,
+        origin_meaning=origin_meaning,
+    )
     candidate_relation_pairs = _relation_candidate_pairs(
         fact,
         excluded_words=_relation_words(fact),
+        origin_word=origin_word,
+        origin_meaning=origin_meaning,
     )
     relation_pairs = _unique_pairs(
         [*relation_pairs, *candidate_relation_pairs],
         8,
     )
     if relation_pairs:
-        has_formal_relations = bool(_relation_pairs(fact))
+        has_formal_relations = bool(
+            _relation_pairs(
+                fact,
+                origin_word=origin_word,
+                origin_meaning=origin_meaning,
+            )
+        )
         has_candidate_relations = bool(candidate_relation_pairs)
         if has_candidate_relations and has_formal_relations:
             relation_status = "已验证 + 来源候选"
@@ -140,7 +157,22 @@ def build_lexical_facts_view(
             )
         )
 
-    derivative_pairs = [*_derivative_pairs(fact), *_family_pairs(aid)]
+    derivative_pairs = [
+        *(
+            _derivative_pairs(
+                fact,
+                origin_word=origin_word,
+                origin_meaning=origin_meaning,
+            )
+        ),
+        *(
+            _family_pairs(
+                aid,
+                origin_word=origin_word,
+                origin_meaning=origin_meaning,
+            )
+        ),
+    ]
     derivative_pairs = _unique_pairs(derivative_pairs, 6)
     if derivative_pairs:
         sections.append(
@@ -188,6 +220,9 @@ def _format_forms(fact: WordLexicalFact | None) -> tuple[str, ...]:
 
 def _relation_pairs(
     fact: WordLexicalFact | None,
+    *,
+    origin_word: str = "",
+    origin_meaning: str = "",
 ) -> list[tuple[str, LinkedWordReference]]:
     if fact is None:
         return []
@@ -221,6 +256,9 @@ def _relation_pairs(
                             part_of_speech=pos,
                             meaning=meaning,
                             trust="source_validated",
+                            origin_word=origin_word,
+                            origin_meaning=origin_meaning,
+                            origin_relation=relation,
                         ),
                     )
                 )
@@ -231,6 +269,8 @@ def _relation_candidate_pairs(
     fact: WordLexicalFact | None,
     *,
     excluded_words: set[str],
+    origin_word: str = "",
+    origin_meaning: str = "",
 ) -> list[tuple[str, LinkedWordReference]]:
     if fact is None or fact.candidate_status != "candidate_only":
         return []
@@ -268,6 +308,9 @@ def _relation_candidate_pairs(
                             meaning=meaning,
                             english_definition=item.english_definition,
                             trust="source_candidate",
+                            origin_word=origin_word,
+                            origin_meaning=origin_meaning,
+                            origin_relation=relation,
                         ),
                     )
                 )
@@ -297,6 +340,9 @@ def _clean_cow_label(value: str) -> str:
 
 def _derivative_pairs(
     fact: WordLexicalFact | None,
+    *,
+    origin_word: str = "",
+    origin_meaning: str = "",
 ) -> list[tuple[str, LinkedWordReference]]:
     if fact is None:
         return []
@@ -322,6 +368,9 @@ def _derivative_pairs(
                             part_of_speech=pos,
                             meaning=meaning,
                             trust="source_validated",
+                            origin_word=origin_word,
+                            origin_meaning=origin_meaning,
+                            origin_relation="派生词",
                         ),
                     )
                 )
@@ -330,6 +379,9 @@ def _derivative_pairs(
 
 def _family_pairs(
     aid: WordLearningAid | None,
+    *,
+    origin_word: str = "",
+    origin_meaning: str = "",
 ) -> list[tuple[str, LinkedWordReference]]:
     if aid is None:
         return []
@@ -362,6 +414,9 @@ def _family_pairs(
                     part_of_speech=display_pos,
                     meaning=meaning,
                     trust="ai_unreviewed",
+                    origin_word=origin_word,
+                    origin_meaning=origin_meaning,
+                    origin_relation="派生词",
                 ),
             )
         )

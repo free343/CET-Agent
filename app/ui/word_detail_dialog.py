@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -14,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.services.lexical_fact_view import LinkedWordReference
 from app.services.word_detail_service import WordDetailView
 from app.ui.widgets.lexical_link_label import LexicalLinkLabel
 
@@ -28,7 +31,7 @@ class WordDetailDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("词卡详情")
         self.resize(760, 620)
-        self.setMinimumSize(560, 460)
+        self.setMinimumSize(480, 400)
         self.setModal(False)
         self.setObjectName("WordDetailDialog")
 
@@ -39,6 +42,8 @@ class WordDetailDialog(QDialog):
         header = QHBoxLayout()
         self.back_button = QPushButton("‹ 返回")
         self.back_button.setObjectName("WordDetailBackButton")
+        self.back_button.setAccessibleName("返回上一张词卡")
+        self.back_button.setToolTip("返回上一张词卡（Alt+Left）")
         self.back_button.clicked.connect(self.back_requested.emit)
         self.back_button.hide()
         header.addWidget(self.back_button)
@@ -48,6 +53,7 @@ class WordDetailDialog(QDialog):
         header.addStretch()
         self.close_button = QPushButton("关闭")
         self.close_button.setObjectName("WordDetailCloseButton")
+        self.close_button.setAccessibleName("关闭词卡详情")
         self.close_button.clicked.connect(self.close)
         header.addWidget(self.close_button)
         outer.addLayout(header)
@@ -66,6 +72,42 @@ class WordDetailDialog(QDialog):
         outer.addWidget(self.meaning_label)
         outer.addWidget(self.level_label)
         outer.addWidget(self.status_label)
+
+        self.comparison_frame = QFrame()
+        self.comparison_frame.setObjectName("WordDetailComparison")
+        comparison_layout = QHBoxLayout(self.comparison_frame)
+        comparison_layout.setContentsMargins(10, 8, 10, 8)
+        comparison_layout.setSpacing(18)
+        source_column = QVBoxLayout()
+        source_title = QLabel("来源词")
+        source_title.setObjectName("WordDetailComparisonTitle")
+        self.origin_word_label = QLabel("")
+        self.origin_word_label.setObjectName("WordDetailComparisonWord")
+        self.origin_meaning_label = QLabel("")
+        self.origin_meaning_label.setWordWrap(True)
+        source_column.addWidget(source_title)
+        source_column.addWidget(self.origin_word_label)
+        source_column.addWidget(self.origin_meaning_label)
+        target_column = QVBoxLayout()
+        target_title = QLabel("当前词")
+        target_title.setObjectName("WordDetailComparisonTitle")
+        self.target_word_label = QLabel("")
+        self.target_word_label.setObjectName("WordDetailComparisonWord")
+        self.target_meaning_label = QLabel("")
+        self.target_meaning_label.setWordWrap(True)
+        target_column.addWidget(target_title)
+        target_column.addWidget(self.target_word_label)
+        target_column.addWidget(self.target_meaning_label)
+        comparison_layout.addLayout(source_column, 1)
+        comparison_layout.addLayout(target_column, 1)
+        self.comparison_frame.hide()
+        outer.addWidget(self.comparison_frame)
+
+        self._focus_word = ""
+        self._link_labels: list[tuple[LexicalLinkLabel, tuple[str, ...]]] = []
+        QShortcut(QKeySequence("Alt+Left"), self, self.back_requested.emit).setContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
 
         self.scroll = QScrollArea()
         self.scroll.setObjectName("WordDetailScroll")
@@ -94,6 +136,8 @@ class WordDetailDialog(QDialog):
         self.meaning_label.clear()
         self.level_label.clear()
         self.status_label.clear()
+        self.comparison_frame.hide()
+        self._link_labels.clear()
         self._clear_content()
         self.scroll.hide()
         self.loading_label.setText("正在加载词卡…")
@@ -105,6 +149,8 @@ class WordDetailDialog(QDialog):
         self.loading_label.setText(str(message).strip() or "词卡暂时无法打开。")
         self.loading_label.show()
         self.status_label.clear()
+        self.comparison_frame.hide()
+        self._link_labels.clear()
 
     def set_view(self, view: WordDetailView, *, can_go_back: bool = False) -> None:
         self.word_label.setText(view.word)
@@ -113,7 +159,22 @@ class WordDetailDialog(QDialog):
         self.level_label.setText(view.level)
         self.status_label.setText(view.trust_label)
         self.status_label.setVisible(bool(view.trust_label))
+        origin_word = view.reference.origin_word.strip()
+        if origin_word and origin_word.casefold() != view.word.casefold():
+            self.origin_word_label.setText(origin_word)
+            self.origin_meaning_label.setText(
+                view.reference.origin_meaning.strip() or "暂无中文释义"
+            )
+            self.target_word_label.setText(view.word)
+            self.target_meaning_label.setText(view.meaning or "暂无中文释义")
+            self.comparison_frame.setToolTip(
+                f"{view.reference.origin_relation or '关联'}：{origin_word} → {view.word}"
+            )
+            self.comparison_frame.show()
+        else:
+            self.comparison_frame.hide()
         self.back_button.setVisible(can_go_back)
+        self._link_labels.clear()
         self._clear_content()
         if view.reference_only and view.reference.english_definition:
             self._add_text_block("英文释义", view.reference.english_definition)
@@ -129,15 +190,35 @@ class WordDetailDialog(QDialog):
             self.content_layout.addWidget(title)
             label = LexicalLinkLabel()
             label.setWordWrap(True)
+            label.linked_word_clicked.connect(self._remember_link_focus)
             label.linked_word_clicked.connect(self.linked_word.emit)
             label.set_items(section.items, section.item_references)
+            references = tuple(
+                reference.word if reference is not None else ""
+                for reference in section.item_references
+            )
+            self._link_labels.append((label, references))
             self.content_layout.addWidget(label)
         self.content_layout.addStretch()
         self.loading_label.hide()
         self.scroll.show()
+        self._focus_link(self._focus_word)
 
     def set_back_enabled(self, enabled: bool) -> None:
         self.back_button.setVisible(enabled)
+
+    def _remember_link_focus(self, reference: object) -> None:
+        if isinstance(reference, LinkedWordReference):
+            self._focus_word = reference.word.strip()
+
+    def _focus_link(self, word: str) -> None:
+        target = str(word or "").strip().casefold()
+        if not target:
+            return
+        for label, words in self._link_labels:
+            if any(candidate.strip().casefold() == target for candidate in words):
+                label.setFocus(Qt.FocusReason.OtherFocusReason)
+                return
 
     def _add_text_block(self, title: str, text: str) -> None:
         title_label = QLabel(title)

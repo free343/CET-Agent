@@ -202,6 +202,8 @@ def build_review_items(
                     feedback_reported=(
                         feedback_by_word_id.get(state.word.id) is not None
                     ),
+                    origin_word=state.word.word,
+                    origin_meaning=state.word.meaning,
                 ).sections,
                 lexical_facts_available=lexical_facts_available,
             )

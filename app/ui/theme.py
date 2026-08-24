@@ -33,6 +33,9 @@ QLabel#LearningAidStatus { background: #fffbeb; color: #92400e; border: 1px soli
 QPushButton#LearningAidReportButton { background: transparent; color: #475569; border: 1px solid #cbd5e1; border-radius: 7px; padding: 5px 10px; }
 QPushButton#LearningAidReportButton:hover { background: #f1f5f9; color: #1e293b; }
 QDialog#WordDetailDialog { background: #f8fafc; }
+QFrame#WordDetailComparison { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 9px; }
+QLabel#WordDetailComparisonTitle { color: #4338ca; font-size: 12px; font-weight: 700; }
+QLabel#WordDetailComparisonWord { color: #1e1b4b; font-size: 17px; font-weight: 700; }
 QLabel#WordDetailWord { font-size: 30px; font-weight: 700; color: #111827; }
 QLabel#WordDetailPhonetic { color: #64748b; font-size: 16px; }
 QLabel#WordDetailMeaning { color: #1e293b; font-size: 18px; font-weight: 600; }

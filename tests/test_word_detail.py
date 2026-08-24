@@ -15,6 +15,7 @@ from app.services.word_detail_service import WordDetailService, WordDetailView
 from app.ui.widgets.lexical_link_label import LexicalLinkLabel
 from app.ui.widgets.review_card import ReviewCardWidget
 from app.ui.word_detail_controller import WordDetailController
+from app.ui.word_detail_dialog import WordDetailDialog
 
 
 def test_word_lookup_prioritizes_exact_headword_and_bounds_invalid_input(
@@ -102,6 +103,9 @@ def test_in_bank_detail_reuses_word_and_linked_fact_projection(
     assert relations.reference_for(0) is not None
     assert relations.reference_for(0).word == "adjust"
     assert relations.reference_for(0).trust == "source_validated"
+    assert relations.reference_for(0).origin_word == "adapt"
+    assert relations.reference_for(0).origin_meaning == "适应；改编"
+    assert relations.reference_for(0).origin_relation == "近义"
     derivatives = next(
         section for section in view.sections if section.key == "derivatives"
     )
@@ -160,6 +164,52 @@ def test_lexical_link_label_emits_only_registered_local_reference() -> None:
     label._link_activated("https://example.com")
     assert emitted == [reference]
     label.deleteLater()
+
+
+def test_word_detail_dialog_shows_origin_comparison_and_keeps_keyboard_focus() -> None:
+    _app = QApplication.instance() or QApplication([])
+    dialog = WordDetailDialog()
+    reference = LinkedWordReference(
+        word="major",
+        meaning="主要的",
+        origin_word="main",
+        origin_meaning="主要的；核心的",
+        origin_relation="近义",
+    )
+    dialog.set_view(
+        WordDetailView(
+            reference=reference,
+            word="major",
+            phonetic="/ˈmeɪdʒər/",
+            meaning="主要的",
+            level="CET4",
+            example="",
+            example_translation="",
+            sections=(
+                LexicalFactSection(
+                    key="relations",
+                    title="近反义",
+                    items=("近义：main adj. 主要的",),
+                    status="已验证",
+                    verified=True,
+                    item_references=(
+                        LinkedWordReference(word="main", meaning="主要的"),
+                    ),
+                ),
+            ),
+        ),
+        can_go_back=True,
+    )
+    dialog.show()
+    _app.processEvents()
+
+    assert dialog.comparison_frame.isHidden() is False
+    assert "main" in dialog.origin_word_label.text()
+    assert dialog.back_button.isVisible()
+    dialog._focus_link("main")
+    assert dialog.focusWidget() is not None
+    dialog.close()
+    dialog.deleteLater()
 
 
 def test_review_card_passes_linked_target_to_study_page_callback() -> None:

@@ -122,6 +122,9 @@ class WordDetailService:
                         meaning=reference.meaning,
                         english_definition=reference.english_definition,
                         trust=reference.trust,
+                        origin_word=reference.origin_word,
+                        origin_meaning=reference.origin_meaning,
+                        origin_relation=reference.origin_relation,
                     )
                 )
 
@@ -143,6 +146,8 @@ class WordDetailService:
                 fact,
                 aid,
                 feedback_reported=feedback_reported,
+                origin_word=word.word,
+                origin_meaning=word.meaning,
             )
             canonical_reference = LinkedWordReference(
                 word=word.word,
@@ -150,6 +155,9 @@ class WordDetailService:
                 meaning=word.meaning,
                 english_definition=reference.english_definition,
                 trust=reference.trust,
+                origin_word=reference.origin_word,
+                origin_meaning=reference.origin_meaning,
+                origin_relation=reference.origin_relation,
             )
             return WordDetailView(
                 reference=canonical_reference,
