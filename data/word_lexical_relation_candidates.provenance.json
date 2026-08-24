@@ -1,21 +1,21 @@
 {
   "artifact": {
     "counts": {
-      "antonym_groups": 537,
+      "antonym_groups": 526,
       "excluded_multiple_senses": 0,
-      "groups": 4318,
-      "items": 8447,
-      "no_aligned_sense": 2023,
-      "selected_aligned_senses": 947,
-      "selected_single_sense": 1550,
-      "synonym_groups": 3781,
+      "groups": 4262,
+      "items": 8308,
+      "no_aligned_sense": 2048,
+      "selected_aligned_senses": 936,
+      "selected_single_sense": 1539,
+      "synonym_groups": 3736,
       "total": 4611,
-      "truncated_aligned_senses": 91,
-      "unique_relation_targets": 4840
+      "truncated_aligned_senses": 88,
+      "unique_relation_targets": 4727
     },
     "file": "word_lexical_relation_candidates.jsonl",
     "rows": 4611,
-    "sha256": "2265860663bacfac173a58eaf1b0442fed212ce4a0fcf02f34618159c836c046"
+    "sha256": "869215003c285fbdf9ec90aba6b35608aaedb456149c210e249264fd47406e5b"
   },
   "candidate_status": "candidate_only",
   "schema_version": 1,
@@ -46,5 +46,5 @@
       "version": "2.0"
     }
   ],
-  "transformation": "wordnet-cow-relation-candidates-v2; Chinese-overlap-aligned WordNet senses, single-word ECDICT targets (including outside-bank reference words), ECDICT frequency greater than zero, at most six targets per relation type, and at most four groups per headword"
+  "transformation": "wordnet-cow-relation-candidates-v3; Chinese-overlap-aligned WordNet senses, single-word ECDICT targets (including outside-bank reference words), ordinary-language ECDICT translation required, ECDICT frequency greater than zero, at most six targets per relation type, and at most four groups per headword"
 }

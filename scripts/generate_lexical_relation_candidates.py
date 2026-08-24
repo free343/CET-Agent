@@ -129,10 +129,11 @@ def generate(
             for source_id in sorted(required)
         ],
         "transformation": (
-            "wordnet-cow-relation-candidates-v2; Chinese-overlap-aligned WordNet "
+            "wordnet-cow-relation-candidates-v3; Chinese-overlap-aligned WordNet "
             "senses, single-word ECDICT targets (including outside-bank reference "
-            "words), ECDICT frequency greater than zero, at most six targets per "
-            "relation type, and at most four groups per headword"
+            "words), ordinary-language ECDICT translation required, ECDICT "
+            "frequency greater than zero, at most six targets per relation type, "
+            "and at most four groups per headword"
         ),
     }
     provenance_path.parent.mkdir(parents=True, exist_ok=True)

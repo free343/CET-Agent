@@ -63,7 +63,9 @@ def test_single_aligned_synonym_keeps_frequency_and_field_evidence() -> None:
 
     assert record.selection_status == "selected_single_sense"
     assert record.groups[0].items[0].word == "primary"
+    assert record.groups[0].items[0].meaning == "主要的"
     assert record.groups[0].items[0].frequency == 1504
+    assert record.groups[0].items[0].evidence[-1].field == "translation"
     assert record.content_hash == lexical_relation_candidate_content_hash(record)
     report = validate_records(
         [record],
@@ -117,6 +119,53 @@ def test_relation_pilot_rejects_unaligned_sense() -> None:
     assert record.groups == []
 
 
+def test_relation_pilot_rejects_domain_only_translation_target() -> None:
+    row = next(
+        row
+        for row in load_vocabulary_rows(ROOT / "data" / "cet_vocabulary_open.csv")
+        if row.word == "human"
+    )
+    manifest = load_lexical_source_manifest(
+        ROOT / "data" / "lexical_source_manifest.json"
+    )
+    contracts = {source.source_id: source for source in manifest.sources}
+    english = EnglishWordnetIndex(
+        target_senses={"human": [SenseData("syn-human", "n", (), "human-sense")]},
+        sense_words={"human-sense": "human"},
+        sense_synsets={"human-sense": "syn-human"},
+        synsets={
+            "syn-human": SynsetData("i-human", "a human being", ("human", "homo"))
+        },
+    )
+    ecdict = {
+        "human": ECDICTEntry("", "n. 人, 人类", "n. a human being", {}, 500),
+        "homo": ECDICTEntry(
+            "",
+            r"[化] 最高占据轨道; 最高占据分子轨道\n[医] 人属",
+            "n. a member of the family Hominidae",
+            {},
+            20_144,
+        ),
+    }
+
+    record = build_relation_candidate_record(
+        row,
+        english,
+        {"i-human": ("人", "人类")},
+        ecdict,
+        oewn_version=contracts["oewn-2025"].version,
+        oewn_sha256=contracts["oewn-2025"].sha256,
+        cow_version=contracts["omw-cmn-2"].version,
+        cow_sha256=contracts["omw-cmn-2"].sha256,
+        ecdict_version=contracts["ecdict"].version,
+        ecdict_sha256=contracts["ecdict"].sha256,
+        manifest_sha256="a" * 64,
+    )
+
+    assert record.selection_status == "no_aligned_sense"
+    assert record.groups == []
+
+
 def test_runtime_candidate_overlay_is_complete_and_hash_checked() -> None:
     rows = load_vocabulary_rows(ROOT / "data" / "sample_words.csv")
     rows += load_vocabulary_rows(ROOT / "data" / "cet_vocabulary_open.csv")
@@ -132,4 +181,6 @@ def test_runtime_candidate_overlay_is_complete_and_hash_checked() -> None:
         if any(group.relation_type == "synonym" for group in record.groups)
     }
     assert len(records) == 4611
-    assert len(synonym_words) >= 2400
+    # The ordinary-gloss gate intentionally removes specialist-only targets;
+    # the pinned v3 artifact still covers the expected broad learner set.
+    assert len(synonym_words) >= 2380

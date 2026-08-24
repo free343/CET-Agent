@@ -20,6 +20,7 @@ from app.domain.lexical_relation_candidate_builder import (
     MAX_RELATION_TARGET_FREQUENCY,
     RELATION_CANDIDATE_SOURCE,
 )
+from app.domain.lexical_relation_quality import learner_translation
 from app.domain.lexical_source_readers import ECDICTEntry, EnglishWordnetIndex
 
 
@@ -127,6 +128,17 @@ def validate_record(
                 )
             elif item.frequency != entry.frequency:
                 errors.append(f"{record.word}:{item.word}: frequency differs")
+            else:
+                expected_meaning = learner_translation(
+                    entry.translation,
+                    part_of_speech=group.part_of_speech,
+                )
+                if not expected_meaning:
+                    errors.append(
+                        f"{record.word}:{item.word}: ECDICT translation is domain-only"
+                    )
+                elif item.meaning != expected_meaning:
+                    errors.append(f"{record.word}:{item.word}: translation differs")
             if item.frequency <= 0 or item.frequency > MAX_RELATION_TARGET_FREQUENCY:
                 errors.append(
                     f"{record.word}:{item.word}: frequency is outside pilot bound"
@@ -485,8 +497,8 @@ def _validate_evidence(
                 errors.append(f"{word}:{target_word}: COW evidence locator differs")
         elif pointer.source_id == "ecdict":
             if (
-                pointer.field != "frequency"
-                or pointer.locator != f"ecdict.csv:word={target_word}:field=frq"
+                pointer.field != "translation"
+                or pointer.locator != f"ecdict.csv:word={target_word}:field=translation"
             ):
                 errors.append(f"{word}:{target_word}: ECDICT evidence locator differs")
 

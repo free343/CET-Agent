@@ -18,6 +18,10 @@ from app.ai.schemas import (
     LexicalRelationCandidateRecord,
 )
 from app.db.seed import VocabularySeedRow
+from app.domain.lexical_relation_quality import (
+    has_learner_translation,
+    learner_translation,
+)
 from app.domain.lexical_source_audit import chinese_sense_matches
 from app.domain.lexical_source_readers import (
     ECDICTEntry,
@@ -25,7 +29,7 @@ from app.domain.lexical_source_readers import (
     SenseData,
 )
 
-RELATION_CANDIDATE_SOURCE = "wordnet-cow-relation-candidates-v2"
+RELATION_CANDIDATE_SOURCE = "wordnet-cow-relation-candidates-v3"
 MAX_RELATION_TARGET_FREQUENCY = 1_000_000
 _HEADWORD_PATTERN = re.compile(r"[a-z]+(?:[-'][a-z]+)*")
 _POS_LABELS = {
@@ -193,8 +197,8 @@ def _candidate_words(
     ecdict: dict[str, ECDICTEntry],
     target_words: set[str],
     part_of_speech: str,
-) -> list[tuple[str, ECDICTEntry]]:
-    unique: dict[str, ECDICTEntry] = {}
+) -> list[tuple[str, ECDICTEntry, str]]:
+    unique: dict[str, tuple[ECDICTEntry, str]] = {}
     for value in values:
         word = value.strip().casefold()
         if word == headword or word not in target_words:
@@ -206,10 +210,21 @@ def _candidate_words(
             continue
         if entry.frequency > MAX_RELATION_TARGET_FREQUENCY:
             continue
+        # Frequency is not a learner-suitability signal.  Reject rows whose
+        # only Chinese gloss is specialist-tagged (for example ``homo`` has
+        # only chemistry/medical senses in ECDICT).
+        if not has_learner_translation(entry, part_of_speech=part_of_speech):
+            continue
         if not _pos_compatible(entry, part_of_speech):
             continue
-        unique[word] = entry
-    return sorted(unique.items(), key=lambda item: (-item[1].frequency, item[0]))[:6]
+        unique[word] = (
+            entry,
+            learner_translation(entry.translation, part_of_speech=part_of_speech),
+        )
+    ordered = sorted(unique.items(), key=lambda item: (-item[1][0].frequency, item[0]))[
+        :6
+    ]
+    return [(word, entry, meaning) for word, (entry, meaning) in ordered]
 
 
 def _pos_compatible(entry: ECDICTEntry, part_of_speech: str) -> bool:
@@ -235,7 +250,7 @@ def _build_group(
     sense: SenseData,
     ili: str,
     sense_label: str,
-    candidates: list[tuple[str, ECDICTEntry]],
+    candidates: list[tuple[str, ECDICTEntry, str]],
     *,
     oewn_version: str,
     oewn_sha256: str,
@@ -255,7 +270,7 @@ def _build_group(
         items=[
             LexicalRelationCandidateItem(
                 word=word,
-                meaning=sense_label,
+                meaning=meaning,
                 english_definition=definition[:160],
                 frequency=entry.frequency,
                 evidence=[
@@ -285,14 +300,14 @@ def _build_group(
                     LexicalEvidence(
                         source_id="ecdict",
                         source_version=ecdict_version,
-                        field="frequency",
-                        locator=f"ecdict.csv:word={word}:field=frq",
+                        field="translation",
+                        locator=f"ecdict.csv:word={word}:field=translation",
                         source_sha256=ecdict_sha256,
                     ),
                 ],
-                note="仅保留单词级、ECDICT 频率大于 0 且词性兼容的候选；关系可能超出 CET 词库，需人工审核。",
+                note="仅保留单词级、ECDICT 有普通中文释义、频率大于 0 且词性兼容的候选；关系可能超出 CET 词库，需人工审核。",
             )
-            for word, entry in candidates
+            for word, entry, meaning in candidates
         ],
     )
 
