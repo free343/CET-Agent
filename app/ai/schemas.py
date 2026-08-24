@@ -18,9 +18,20 @@ MAX_WORD_FAMILY_WORD_CHARS = 100
 MAX_WORD_FAMILY_MEANING_CHARS = 120
 MAX_WORD_FAMILY_POS_CHARS = 20
 
+# The lexical-fact artifact is deliberately separate from generated learning
+# aids.  These limits are shared by the offline validator, database importer,
+# deterministic query service, and UI projection.
+LEXICAL_FACTS_PROMPT_VERSION = "lexical-facts-v1"
+MAX_LEXICAL_FORM_CHARS = 80
+MAX_LEXICAL_NOTE_CHARS = 240
+MAX_LEXICAL_SENSE_CHARS = 160
+MAX_LEXICAL_RELATION_CHARS = 80
+MAX_LEXICAL_RELATION_MEANING_CHARS = 120
+MAX_LEXICAL_RELATION_NOTE_CHARS = 240
+
 
 class StrictSchema(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
 
 class WordExplanation(StrictSchema):
@@ -117,3 +128,101 @@ class WordLearningAidRecord(StrictSchema):
     word_family: list[WordFamilyMember] = Field(max_length=4)
     generator: WordLearningAidGenerator
     content_status: Literal["ai_generated_unreviewed"]
+
+
+class LexicalSurfaceForm(StrictSchema):
+    """One attested surface form in a typed grammatical paradigm."""
+
+    role: str = Field(min_length=1, max_length=40)
+    value: str = Field(min_length=1, max_length=MAX_LEXICAL_FORM_CHARS)
+    phonetic: str = Field(default="", max_length=120)
+    region: str = Field(default="", max_length=40)
+    usage_register: str = Field(
+        default="",
+        max_length=40,
+        validation_alias="register",
+        serialization_alias="register",
+    )
+    sense: str = Field(default="", max_length=MAX_LEXICAL_SENSE_CHARS)
+    note: str = Field(default="", max_length=MAX_LEXICAL_NOTE_CHARS)
+
+    @property
+    def register(self) -> str:
+        """Compatibility accessor using the compact contract name."""
+        return self.usage_register
+
+
+class NounParadigm(StrictSchema):
+    paradigm_type: Literal["noun"]
+    countability: Literal[
+        "countable",
+        "uncountable",
+        "both",
+        "plural_only",
+        "invariant",
+    ]
+    forms: list[LexicalSurfaceForm] = Field(max_length=6)
+
+
+class VerbParadigm(StrictSchema):
+    paradigm_type: Literal["verb"]
+    forms: list[LexicalSurfaceForm] = Field(max_length=8)
+
+
+class DegreeParadigm(StrictSchema):
+    paradigm_type: Literal["degree"]
+    part_of_speech: Literal["adjective", "adverb"]
+    gradability: Literal["gradable", "non_gradable", "contextual"]
+    forms: list[LexicalSurfaceForm] = Field(max_length=8)
+
+
+class NumeralParadigm(StrictSchema):
+    paradigm_type: Literal["numeral"]
+    forms: list[LexicalSurfaceForm] = Field(max_length=8)
+
+
+class PronounParadigm(StrictSchema):
+    paradigm_type: Literal["pronoun"]
+    forms: list[LexicalSurfaceForm] = Field(max_length=8)
+
+
+LexicalParadigm = Annotated[
+    NounParadigm | VerbParadigm | DegreeParadigm | NumeralParadigm | PronounParadigm,
+    Field(discriminator="paradigm_type"),
+]
+
+
+class LexicalRelationItem(StrictSchema):
+    word: str = Field(min_length=1, max_length=MAX_LEXICAL_RELATION_CHARS)
+    meaning: str = Field(
+        min_length=1,
+        max_length=MAX_LEXICAL_RELATION_MEANING_CHARS,
+    )
+    note: str = Field(default="", max_length=MAX_LEXICAL_RELATION_NOTE_CHARS)
+
+
+class LexicalRelationGroup(StrictSchema):
+    relation_type: Literal["synonym", "antonym", "derivative"]
+    part_of_speech: str = Field(min_length=1, max_length=MAX_WORD_FAMILY_POS_CHARS)
+    sense: str = Field(default="", max_length=MAX_LEXICAL_SENSE_CHARS)
+    items: list[LexicalRelationItem] = Field(min_length=1, max_length=6)
+
+
+class LexicalSectionStatus(StrictSchema):
+    forms: Literal["source_validated", "verified_empty", "missing"]
+    relations: Literal["source_validated", "verified_empty", "missing"]
+
+
+class LexicalFactRecord(StrictSchema):
+    """One complete, offline-validated lexical-fact record per headword."""
+
+    schema_version: Literal[1]
+    word: str = Field(min_length=1, max_length=100)
+    level: Literal["CET4", "CET6"]
+    source_kind: Literal["curated", "open"]
+    source_meaning: str = Field(min_length=1, max_length=500)
+    forms: list[LexicalParadigm] = Field(max_length=8)
+    relations: list[LexicalRelationGroup] = Field(max_length=6)
+    status: LexicalSectionStatus
+    source: str = Field(min_length=1, max_length=120)
+    content_hash: str = Field(min_length=64, max_length=64)

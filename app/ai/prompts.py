@@ -123,8 +123,9 @@ def _context_task_instruction(
             return _advanced_lexical_expansion_instruction()
         return (
             "TASK: GROUNDED_LEXICAL_HELP\n"
-            "只使用 CONTEXT 中已提供的当前词卡事实，不得自行列出词卡之外的"
-            "近义词、反义词或对比词。若 CONTEXT 没有直接给出答案，明确说明"
+            "只使用 CONTEXT 中已提供的当前词卡事实；词形、序数、近义词和反义词"
+            "必须逐字遵守 CONTEXT 中的已验证字段，不得改写或猜测。不得自行列出"
+            "词卡之外的近义词、反义词或对比词。若 CONTEXT 没有直接给出答案，明确说明"
             "本地模式资料不足，并建议用户在回答模型中选择高级模型。"
         )
     if is_memory_help_question(question):

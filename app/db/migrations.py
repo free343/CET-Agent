@@ -17,6 +17,7 @@ from app.db.models import (
     WordAcquisitionState,
     WordLearningAid,
     WordLearningAidFeedback,
+    WordLexicalFact,
 )
 
 Migration = Callable[[Connection], None]
@@ -194,6 +195,10 @@ def _add_acquisition_and_mastery_state(connection: Connection) -> None:
     MasteredWord.__table__.create(bind=connection, checkfirst=True)
 
 
+def _add_word_lexical_facts(connection: Connection) -> None:
+    WordLexicalFact.__table__.create(bind=connection, checkfirst=True)
+
+
 MIGRATIONS: dict[int, Migration] = {
     1: _create_initial_schema,
     2: _add_fsrs_card_state,
@@ -206,6 +211,7 @@ MIGRATIONS: dict[int, Migration] = {
     9: _add_word_learning_aid_feedback,
     10: _add_practice_logs,
     11: _add_acquisition_and_mastery_state,
+    12: _add_word_lexical_facts,
 }
 CURRENT_SCHEMA_VERSION = max(MIGRATIONS)
 

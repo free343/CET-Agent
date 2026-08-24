@@ -299,7 +299,11 @@ class ChatPanel(QWidget):
         if not self._pending_request_is_current():
             return
         suffix = "（降级响应）" if answer.degraded else ""
-        if answer.model in {"deterministic-memory", "scope-policy"}:
+        if answer.model in {
+            "deterministic-memory",
+            "deterministic-lexical-fact",
+            "scope-policy",
+        }:
             metadata = "本地规则 · 无模型调用"
         elif self._pending_use_advanced:
             metadata = f"高级模型 · {answer.model}{suffix}"
@@ -325,7 +329,12 @@ class ChatPanel(QWidget):
             self.pending_question
             and not self._pending_use_advanced
             and not answer.degraded
-            and answer.model not in {"deterministic-memory", "scope-policy"}
+            and answer.model
+            not in {
+                "deterministic-memory",
+                "deterministic-lexical-fact",
+                "scope-policy",
+            }
             and self.service.advanced_available
             and self._pending_context_generation is not None
         ):

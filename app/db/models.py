@@ -118,6 +118,9 @@ class Word(Base):
     acquisition_attempts: Mapped[list[AcquisitionAttempt]] = relationship(
         back_populates="word", cascade="all, delete-orphan"
     )
+    lexical_fact: Mapped[WordLexicalFact | None] = relationship(
+        back_populates="word", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class LearningState(Base):
@@ -356,6 +359,32 @@ class WordLearningAidFeedback(Base):
     )
 
     learning_aid: Mapped[WordLearningAid] = relationship()
+
+
+class WordLexicalFact(Base):
+    """One verified lexical-fact projection per vocabulary headword.
+
+    JSON is used only as the storage representation of the strict offline
+    artifact.  Scheduling and review data never depend on this table.
+    """
+
+    __tablename__ = "word_lexical_facts"
+
+    word_id: Mapped[int] = mapped_column(
+        ForeignKey("words.id", ondelete="CASCADE"), primary_key=True
+    )
+    forms_json: Mapped[str] = mapped_column(Text, default="[]")
+    relations_json: Mapped[str] = mapped_column(Text, default="[]")
+    forms_status: Mapped[str] = mapped_column(String(30), default="missing")
+    relations_status: Mapped[str] = mapped_column(String(30), default="missing")
+    source: Mapped[str] = mapped_column(String(120), default="")
+    content_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        UTCDateTime(), default=utc_now, onupdate=utc_now
+    )
+
+    word: Mapped[Word] = relationship(back_populates="lexical_fact")
 
 
 class ConfusionEdge(Base):

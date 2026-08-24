@@ -9,6 +9,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 
 from app.ai.schemas import (
@@ -56,12 +57,20 @@ def _contains_standalone_word(example: str, word: str) -> bool:
     )
 
 
-def _regular_word_forms(word: str) -> set[str]:
+@lru_cache(maxsize=10_000)
+def _headword_form_pattern(word: str) -> re.Pattern[str]:
+    forms = sorted(_regular_word_forms(word), key=len, reverse=True)
+    joined = "|".join(re.escape(form) for form in forms)
+    return re.compile(r"(?<![A-Za-z])(?:" + joined + r")(?![A-Za-z])", re.IGNORECASE)
+
+
+@lru_cache(maxsize=10_000)
+def _regular_word_forms(word: str) -> frozenset[str]:
     """Return the headword plus deterministic, common English inflections."""
     base = word.casefold()
     forms = {base}
     if _HEADWORD_PATTERN.fullmatch(base) is None or "-" in base or "'" in base:
-        return forms
+        return frozenset(forms)
 
     forms.update({base + "s", base + "es", base + "er", base + "est"})
     if len(base) > 1 and base.endswith("y") and base[-2] not in "aeiou":
@@ -78,19 +87,11 @@ def _regular_word_forms(word: str) -> set[str]:
     ):
         forms.update({base + base[-1] + "ed", base + base[-1] + "ing"})
     forms.update(_COMMON_IRREGULAR_FORMS.get(base, set()))
-    return forms
+    return frozenset(forms)
 
 
 def _contains_headword_form(text: str, word: str) -> bool:
-    return any(
-        re.search(
-            r"(?<![A-Za-z])" + re.escape(form) + r"(?![A-Za-z])",
-            text,
-            re.IGNORECASE,
-        )
-        is not None
-        for form in sorted(_regular_word_forms(word), key=len, reverse=True)
-    )
+    return _headword_form_pattern(word).search(text) is not None
 
 
 def _is_obvious_inflection(base: str, candidate: str, part_of_speech: str) -> bool:

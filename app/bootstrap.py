@@ -10,6 +10,7 @@ from app.config import ENV_FILE, PROJECT_ROOT, RUNTIME_ROOT, Settings, settings
 from app.db.acquisition_seed import ensure_acquisition_states
 from app.db.database import Database
 from app.db.learning_aid_seed import load_learning_aid_records, seed_learning_aids
+from app.db.lexical_fact_seed import load_lexical_facts, seed_lexical_facts
 from app.db.models import WordLevel
 from app.db.seed import (
     ensure_learning_states,
@@ -31,6 +32,7 @@ def initialize_database(app_settings: Settings = settings) -> Database:
         curated_csv = PROJECT_ROOT / "data" / "sample_words.csv"
         open_csv = PROJECT_ROOT / "data" / "cet_vocabulary_open.csv"
         aid_jsonl = PROJECT_ROOT / "data" / "word_learning_aids.jsonl"
+        lexical_fact_jsonl = PROJECT_ROOT / "data" / "word_lexical_facts.jsonl"
         curated_rows = load_vocabulary_rows(curated_csv)
         open_rows = load_vocabulary_rows(open_csv)
         aid_sources = [
@@ -54,6 +56,11 @@ def initialize_database(app_settings: Settings = settings) -> Database:
             provenance_path=aid_jsonl.with_name("word_learning_aids.provenance.json"),
             source_files={curated_csv.name: curated_csv, open_csv.name: open_csv},
         )
+        lexical_fact_records = load_lexical_facts(
+            lexical_fact_jsonl,
+            sources=[*curated_rows, *open_rows],
+            require_complete=True,
+        )
         with database.session() as session:
             database.begin_serialized_write(session)
             inserted = sum(
@@ -68,10 +75,11 @@ def initialize_database(app_settings: Settings = settings) -> Database:
                 open_rows,
             )
             aid_written = seed_learning_aids(session, aid_records)
+            lexical_fact_written = seed_lexical_facts(session, lexical_fact_records)
         logger.info(
             "Database initialized; schema_version=%s inserted_words=%s "
             "created_states=%s level=%s newly_activated=%s rebased_words=%s "
-            "acquisition_states=%s learning_aids=%s",
+            "acquisition_states=%s learning_aids=%s lexical_facts=%s",
             schema_version,
             inserted,
             missing_states,
@@ -80,6 +88,7 @@ def initialize_database(app_settings: Settings = settings) -> Database:
             activation.rebased_word_count,
             missing_acquisition_states,
             aid_written,
+            lexical_fact_written,
         )
         return database
     except Exception:

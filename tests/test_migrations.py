@@ -574,6 +574,48 @@ def test_version_ten_adds_acquisition_and_mastery_tables(tmp_path) -> None:
         database.dispose()
 
 
+def test_version_eleven_adds_lexical_fact_table(tmp_path) -> None:
+    database = make_database(tmp_path)
+    try:
+        with database.engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE schema_version (
+                    id INTEGER PRIMARY KEY,
+                    version INTEGER NOT NULL
+                )
+                """
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO schema_version (id, version) VALUES (1, 11)"
+            )
+            connection.exec_driver_sql(
+                """
+                CREATE TABLE words (
+                    id INTEGER PRIMARY KEY
+                )
+                """
+            )
+
+        assert database.upgrade_schema() == CURRENT_SCHEMA_VERSION
+        inspector = inspect(database.engine)
+        assert "word_lexical_facts" in inspector.get_table_names()
+        assert {
+            "word_id",
+            "forms_json",
+            "relations_json",
+            "forms_status",
+            "relations_status",
+            "source",
+            "content_hash",
+            "created_at",
+            "updated_at",
+        } == {column["name"] for column in inspector.get_columns("word_lexical_facts")}
+        assert read_schema_version(database) == CURRENT_SCHEMA_VERSION
+    finally:
+        database.dispose()
+
+
 def test_newer_database_version_is_rejected(tmp_path) -> None:
     database = make_database(tmp_path)
     try:

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.domain.fsrs_scheduler import Rating
+from app.services.lexical_fact_view import LexicalFactSection
 from app.ui.widgets.english_quiz_widget import EnglishQuizWidget
 from app.ui.widgets.meaning_quiz_widget import MeaningQuizWidget
 
@@ -103,22 +104,35 @@ class ReviewCardWidget(QFrame):
         )
         self.learning_aids_content_layout.setContentsMargins(0, 0, 8, 0)
         self.learning_aids_content_layout.setSpacing(24)
-        collocations_group = QVBoxLayout()
-        collocations_title = QLabel("固定搭配")
-        collocations_title.setObjectName("LearningAidTitle")
+        self._learning_aid_groups: dict[str, QWidget] = {}
+        self._learning_aid_titles: dict[str, QLabel] = {}
+
+        def make_group(key: str, title: str, label: QLabel) -> QWidget:
+            group = QWidget()
+            group_layout = QVBoxLayout(group)
+            group_layout.setContentsMargins(0, 0, 0, 0)
+            title_label = QLabel(title)
+            title_label.setObjectName("LearningAidTitle")
+            label.setWordWrap(True)
+            group_layout.addWidget(title_label)
+            group_layout.addWidget(label)
+            self._learning_aid_groups[key] = group
+            self._learning_aid_titles[key] = title_label
+            return group
+
         self.collocations_label = QLabel("")
-        self.collocations_label.setWordWrap(True)
-        collocations_group.addWidget(collocations_title)
-        collocations_group.addWidget(self.collocations_label)
-        family_group = QVBoxLayout()
-        family_title = QLabel("同族 / 派生词")
-        family_title.setObjectName("LearningAidTitle")
         self.word_family_label = QLabel("")
-        self.word_family_label.setWordWrap(True)
-        family_group.addWidget(family_title)
-        family_group.addWidget(self.word_family_label)
-        self.learning_aids_content_layout.addLayout(collocations_group, 1)
-        self.learning_aids_content_layout.addLayout(family_group, 1)
+        self.forms_label = QLabel("")
+        self.relations_label = QLabel("")
+        for key, title, section_label in (
+            ("forms", "词形", self.forms_label),
+            ("collocations", "固定搭配", self.collocations_label),
+            ("relations", "近反义", self.relations_label),
+            ("derivatives", "派生词", self.word_family_label),
+        ):
+            self.learning_aids_content_layout.addWidget(
+                make_group(key, title, section_label), 1
+            )
         self.learning_aids_scroll.setWidget(self.learning_aids_content)
         aids_outer_layout.addWidget(self.learning_aids_scroll)
         feedback_row = QHBoxLayout()
@@ -133,7 +147,9 @@ class ReviewCardWidget(QFrame):
         else:
             self.learning_aid_report_button.hide()
         feedback_row.addWidget(self.learning_aid_report_button)
-        aids_outer_layout.addLayout(feedback_row)
+        self.learning_aid_feedback_row = QWidget()
+        self.learning_aid_feedback_row.setLayout(feedback_row)
+        aids_outer_layout.addWidget(self.learning_aid_feedback_row)
         self.learning_aids_frame.hide()
         self.spelling_panel = QFrame()
         spelling_layout = QHBoxLayout(self.spelling_panel)
@@ -208,7 +224,20 @@ class ReviewCardWidget(QFrame):
         has_learning_aid: bool,
         feedback_reported: bool = False,
         feedback_enabled: bool = False,
+        lexical_sections: tuple[LexicalFactSection, ...] | None = None,
     ) -> None:
+        if lexical_sections is not None:
+            self._show_dynamic_sections(
+                lexical_sections,
+                has_learning_aid=has_learning_aid,
+                feedback_reported=feedback_reported,
+                feedback_enabled=feedback_enabled,
+            )
+            return
+        for key in self._learning_aid_groups:
+            self._learning_aid_groups[key].setVisible(
+                key in {"collocations", "derivatives"}
+            )
         if has_learning_aid:
             collocation_empty = "暂无可靠的固定搭配"
             family_empty = "暂无可靠的同族 / 派生词"
@@ -239,6 +268,76 @@ class ReviewCardWidget(QFrame):
             has_learning_aid and feedback_enabled
         )
         self.learning_aid_report_button.setEnabled(feedback_enabled)
+        self.learning_aids_content_layout.invalidate()
+        self.learning_aids_content.adjustSize()
+        self.learning_aids_frame.show()
+
+    def _show_dynamic_sections(
+        self,
+        sections: tuple[LexicalFactSection, ...],
+        *,
+        has_learning_aid: bool,
+        feedback_reported: bool,
+        feedback_enabled: bool,
+    ) -> None:
+        section_by_key = {section.key: section for section in sections}
+        for key, group in self._learning_aid_groups.items():
+            section = section_by_key.get(key)
+            visible = section is not None and bool(section.items)
+            group.setVisible(visible)
+            if not visible and key == "collocations":
+                self.collocations_label.setText(
+                    "暂无可靠的固定搭配" if has_learning_aid else "内容尚未生成"
+                )
+            if not visible and key == "derivatives":
+                self.word_family_label.setText(
+                    "暂无可靠的同族 / 派生词" if has_learning_aid else "内容尚未生成"
+                )
+            if not visible:
+                continue
+            assert section is not None
+            label = {
+                "forms": self.forms_label,
+                "collocations": self.collocations_label,
+                "relations": self.relations_label,
+                "derivatives": self.word_family_label,
+            }[key]
+            label.setText(self._format_learning_aids(section.items))
+            section_status = (
+                "AI · 已反馈"
+                if feedback_reported and not section.verified
+                else section.status
+            )
+            self._learning_aid_titles[key].setText(
+                f"{section.title} · {section_status}"
+            )
+        has_unreviewed = any(not section.verified for section in sections)
+        if has_unreviewed:
+            reported = feedback_reported or any(
+                "已反馈" in section.status for section in sections
+            )
+            self.learning_aid_status_label.setText(
+                "AI · 已反馈" if reported else "AI · 未审核"
+            )
+            self.learning_aid_status_label.setToolTip(
+                "AI 生成内容，尚未人工审核；已记录你的问题反馈。"
+                if reported
+                else "AI 生成内容，尚未人工审核。"
+            )
+        else:
+            self.learning_aid_status_label.setText("")
+            self.learning_aid_status_label.setToolTip("")
+        self.learning_aid_report_button.setVisible(has_unreviewed and feedback_enabled)
+        self.learning_aid_report_button.setEnabled(feedback_enabled)
+        self.learning_aid_feedback_row.setVisible(has_unreviewed and feedback_enabled)
+        if not sections:
+            # Keep the legacy labels populated for callers that inspect the
+            # widget programmatically, while the learner-facing frame stays
+            # hidden so no empty heading is rendered.
+            self.collocations_label.setText("内容尚未生成")
+            self.word_family_label.setText("内容尚未生成")
+            self.learning_aids_frame.hide()
+            return
         self.learning_aids_content_layout.invalidate()
         self.learning_aids_content.adjustSize()
         self.learning_aids_frame.show()

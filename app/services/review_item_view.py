@@ -19,6 +19,7 @@ from app.db.models import (
     WordLearningAid,
     WordLearningAidFeedback,
     WordLevel,
+    WordLexicalFact,
 )
 from app.domain.acquisition import (
     EnglishCandidate,
@@ -35,6 +36,10 @@ from app.services.learning_aid_view import (
     format_word_family,
     resolve_example,
     resolve_example_translation,
+)
+from app.services.lexical_fact_view import (
+    LexicalFactSection,
+    build_lexical_facts_view,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,6 +67,8 @@ class ReviewItem:
     word_family: tuple[str, ...] = ()
     has_learning_aid: bool = False
     learning_aid_feedback: LearningAidIssueType | None = None
+    lexical_sections: tuple[LexicalFactSection, ...] = ()
+    lexical_facts_available: bool = False
 
 
 def build_review_items(
@@ -105,6 +112,15 @@ def build_review_items(
             )
         )
     }
+    lexical_fact_by_word_id = {
+        fact.word_id: fact
+        for fact in session.scalars(
+            select(WordLexicalFact).where(WordLexicalFact.word_id.in_(word_ids))
+        )
+    }
+    lexical_facts_available = (
+        session.scalar(select(WordLexicalFact.word_id).limit(1)) is not None
+    )
     candidates_by_level = _meaning_candidates_by_level(session, states)
     english_candidates_by_level = _english_candidates_by_level(session, states)
     results: list[ReviewItem] = []
@@ -180,6 +196,14 @@ def build_review_items(
                 word_family=format_word_family(aid_by_word_id.get(state.word.id)),
                 has_learning_aid=state.word.id in aid_by_word_id,
                 learning_aid_feedback=feedback_by_word_id.get(state.word.id),
+                lexical_sections=build_lexical_facts_view(
+                    lexical_fact_by_word_id.get(state.word.id),
+                    aid_by_word_id.get(state.word.id),
+                    feedback_reported=(
+                        feedback_by_word_id.get(state.word.id) is not None
+                    ),
+                ).sections,
+                lexical_facts_available=lexical_facts_available,
             )
         )
     return results

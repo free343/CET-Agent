@@ -13,6 +13,8 @@ data_files = (
     (project_root / "data" / "OPEN_VOCABULARY_LICENSE.md", "data"),
     (project_root / "data" / "word_learning_aids.jsonl", "data"),
     (project_root / "data" / "word_learning_aids.provenance.json", "data"),
+    (project_root / "data" / "word_lexical_facts.jsonl", "data"),
+    (project_root / "data" / "word_lexical_facts.provenance.json", "data"),
     (project_root / ".env.example", "."),
     (project_root / "README.md", "."),
     (project_root / "THIRD_PARTY_NOTICES.md", "."),

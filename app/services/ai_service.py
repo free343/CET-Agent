@@ -8,6 +8,7 @@ from collections import Counter
 from collections.abc import Sequence
 
 from pydantic import ValidationError
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.ai.conversation import ChatExchange
@@ -20,11 +21,14 @@ from app.ai.schemas import (
     ClusterAnalysis,
     ClusterAnalysisResult,
     Exercise,
+    LexicalFactRecord,
+    LexicalSectionStatus,
     WordExplanation,
 )
 from app.db.database import Database
-from app.db.models import AIAnalysis
+from app.db.models import AIAnalysis, Word, WordLexicalFact
 from app.db.repositories import AIAnalysisRepository
+from app.domain.lexical_query import LexicalFactQuery
 from app.domain.query_routing import (
     QueryAssessment,
     QueryRoute,
@@ -41,6 +45,16 @@ from app.utils.text_utils import stable_json_hash
 logger = logging.getLogger(__name__)
 
 
+def _context_word(context: str | None) -> str | None:
+    if not context:
+        return None
+    for line in context.splitlines():
+        if line.casefold().startswith("word="):
+            value = line.split("=", 1)[1].strip()
+            return value or None
+    return None
+
+
 class AIService:
     def __init__(
         self,
@@ -48,11 +62,13 @@ class AIService:
         local_provider: LLMProvider,
         advanced_provider: LLMProvider | None = None,
         routing_policy: QueryRoutingPolicy | None = None,
+        lexical_fact_query: LexicalFactQuery | None = None,
     ) -> None:
         self.database = database
         self.local_provider = local_provider
         self.advanced_provider = advanced_provider
         self.routing_policy = routing_policy or QueryRoutingPolicy()
+        self._lexical_fact_query = lexical_fact_query
 
     @property
     def advanced_available(self) -> bool:
@@ -79,6 +95,11 @@ class AIService:
         history: Sequence[ChatExchange] = (),
         context: str | None = None,
     ) -> AIAnswer:
+        lexical_answer = self._answer_verified_lexical_fact(question, context)
+        if lexical_answer is not None and (
+            not lexical_answer.degraded or not use_advanced
+        ):
+            return lexical_answer
         assessment = self.route_question(question)
         if assessment.route is QueryRoute.REFUSE:
             return AIAnswer(
@@ -131,6 +152,60 @@ class AIService:
                 model=provider.model,
                 degraded=True,
             )
+
+    def _answer_verified_lexical_fact(
+        self,
+        question: str,
+        context: str | None,
+    ) -> AIAnswer | None:
+        query = self._lexical_fact_query
+        if query is None:
+            query = self._load_lexical_fact_query()
+            self._lexical_fact_query = query
+        if not query.has_records:
+            # Compatibility for pre-v12 databases that have not imported the
+            # artifact yet; there is no verified fact boundary to enforce.
+            return None
+        word = _context_word(context)
+        return query.answer(question, word=word)
+
+    def _load_lexical_fact_query(self) -> LexicalFactQuery:
+        records: list[LexicalFactRecord] = []
+        try:
+            with self.database.session() as session:
+                rows = session.execute(
+                    select(WordLexicalFact, Word).join(
+                        Word, Word.id == WordLexicalFact.word_id
+                    )
+                ).all()
+                for fact, word in rows:
+                    try:
+                        records.append(
+                            LexicalFactRecord(
+                                schema_version=1,
+                                word=word.word,
+                                level=word.level.value,
+                                source_kind="curated" if word.example else "open",
+                                source_meaning=word.meaning,
+                                forms=json.loads(fact.forms_json),
+                                relations=json.loads(fact.relations_json),
+                                status=LexicalSectionStatus(
+                                    forms=fact.forms_status,
+                                    relations=fact.relations_status,
+                                ),
+                                source=fact.source or "database",
+                                content_hash=fact.content_hash,
+                            )
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Ignoring malformed persisted lexical fact word_id=%s",
+                            fact.word_id,
+                            exc_info=True,
+                        )
+        except Exception:
+            logger.warning("Unable to load persisted lexical facts", exc_info=True)
+        return LexicalFactQuery(records)
 
     def analyze_cluster(self, cluster: ConfusionCluster) -> ClusterAnalysisResult:
         payload = {

@@ -352,6 +352,9 @@ class AcquisitionPage(QWidget):
             current.collocations,
             current.word_family,
             has_learning_aid=current.has_learning_aid,
+            lexical_sections=(
+                current.lexical_sections if current.lexical_facts_available else None
+            ),
         )
         self.reveal_button.setText("继续学习  Space")
         self.reveal_button.show()
@@ -612,7 +615,11 @@ class AcquisitionPage(QWidget):
                 f"meaning={self.current.meaning}\n"
                 f"example={self.current.example}\n"
                 f"collocations={' ; '.join(self.current.collocations)}\n"
-                f"word_family={' ; '.join(self.current.word_family)}"
+                f"word_family={' ; '.join(self.current.word_family)}\n"
+                + "\n".join(
+                    f"{section.title}={'; '.join(section.items)}"
+                    for section in self.current.lexical_sections
+                )
             ),
         )
 

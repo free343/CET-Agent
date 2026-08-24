@@ -882,6 +882,11 @@ class ReviewPage(QWidget):
             feedback_enabled=(
                 self.learning_aid_feedback_service is not None and self.worker is None
             ),
+            lexical_sections=(
+                self.current.lexical_sections
+                if self.current.lexical_facts_available
+                else None
+            ),
         )
 
     def _set_ratings_enabled(self, enabled: bool) -> None:
@@ -1046,6 +1051,17 @@ class ReviewPage(QWidget):
             return None
         collocations = "; ".join(self.current.collocations)
         word_family = "; ".join(self.current.word_family)
+        lexical_facts = ""
+        if (
+            self._learning_intro_active
+            or self.choice_correct is not None
+            or self.used_hint
+            or self.learning_aids_frame.isVisible()
+        ):
+            lexical_facts = "\n" + "\n".join(
+                f"{section.title}={'; '.join(section.items)}"
+                for section in self.current.lexical_sections
+            )
         return ChatContext(
             label=self.current.word,
             content=(
@@ -1054,7 +1070,7 @@ class ReviewPage(QWidget):
                 f"meaning={self.current.meaning}\n"
                 f"example={self.current.example}\n"
                 f"collocations={collocations}\n"
-                f"word_family={word_family}"
+                f"word_family={word_family}{lexical_facts}"
             ),
         )
 

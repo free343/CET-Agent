@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "artifact": {
+    "file": "word_lexical_facts.jsonl",
+    "sha256": "cd72bc5ca6ca194920cb044d6ca86e7f42548be7b0b450c2d00a58b464a959ed",
+    "rows": 4611,
+    "counts": {
+      "total": 4611,
+      "forms_present": 3869,
+      "relations_present": 3,
+      "source_validated_forms": 3869,
+      "missing_forms": 742
+    }
+  },
+  "sources": [
+    {
+      "file": "sample_words.csv",
+      "sha256": "d48d9b2beafba51b07515727103974e3b5efcb49902d8e7045b44b621659fa51",
+      "license": "project-curated"
+    },
+    {
+      "file": "cet_vocabulary_open.csv",
+      "sha256": "1afc9925361b58c398ab35ef1f10fc2d4b80b4f3c30ee5be542fc9da2bb9a16f",
+      "license": "CC-BY-SA-3.0; source provenance in cet_vocabulary_open.provenance.json"
+    }
+  ],
+  "transformation": "audited-deterministic-rules-v1; no LLM calls; unresolved facts remain missing"
+}
