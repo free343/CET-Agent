@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
 from app.ai.schemas import ClusterAnalysisResult
 from app.services.ai_service import AIService
 from app.services.analysis_service import AnalysisService, ConfusionCluster
+from app.services.lexical_fact_view import LinkedWordReference
 from app.ui.widgets.async_worker import AsyncWorker
 
 logger = logging.getLogger(__name__)
@@ -25,10 +27,18 @@ ANALYSIS_OUTPUT_MAX_BLOCKS = 300
 
 
 class AnalysisPage(QWidget):
-    def __init__(self, service: AnalysisService, ai_service: AIService) -> None:
+    def __init__(
+        self,
+        service: AnalysisService,
+        ai_service: AIService,
+        on_start_practice: Callable[[tuple[int, ...], str], None] | None = None,
+        on_open_word: Callable[[LinkedWordReference], None] | None = None,
+    ) -> None:
         super().__init__()
         self.service = service
         self.ai_service = ai_service
+        self.on_start_practice = on_start_practice
+        self.on_open_word = on_open_word
         self.clusters: list[ConfusionCluster] = []
         self.worker: AsyncWorker | None = None
         self.worker_action: str | None = None
@@ -59,11 +69,25 @@ class AnalysisPage(QWidget):
             "border: 1px solid #bfdbfe; border-radius: 8px; }"
         )
         layout.addWidget(self.list_widget)
+        self.word_detail_actions = QWidget()
+        self.word_detail_layout = QHBoxLayout(self.word_detail_actions)
+        self.word_detail_layout.setContentsMargins(0, 0, 0, 0)
+        self.word_detail_layout.setSpacing(8)
+        layout.addWidget(self.word_detail_actions)
         self.ai_button = QPushButton("AI 分析所选词簇")
         self.ai_button.setObjectName("PrimaryButton")
         self.ai_button.setEnabled(False)
         self.ai_button.clicked.connect(self.analyze_selected)
-        layout.addWidget(self.ai_button)
+        self.practice_button = QPushButton("练习此词簇")
+        self.practice_button.setObjectName("SecondaryButton")
+        self.practice_button.setToolTip("只记录自由练习结果，不改变正式复习安排")
+        self.practice_button.setEnabled(False)
+        self.practice_button.clicked.connect(self.practice_selected)
+        actions = QHBoxLayout()
+        actions.addWidget(self.ai_button)
+        actions.addWidget(self.practice_button)
+        actions.addStretch()
+        layout.addLayout(actions)
         self.ai_output = QTextEdit()
         self.ai_output.setReadOnly(True)
         self.ai_output.document().setMaximumBlockCount(ANALYSIS_OUTPUT_MAX_BLOCKS)
@@ -76,6 +100,7 @@ class AnalysisPage(QWidget):
 
     def refresh(self) -> bool:
         self.list_widget.clear()
+        self._clear_word_detail_actions()
         self.ai_output.clear()
         try:
             self.clusters = self.service.get_clusters()
@@ -84,6 +109,7 @@ class AnalysisPage(QWidget):
             self.clusters = []
             self.status.setText("暂时无法读取错词关系，请稍后重试。")
             self.ai_button.setEnabled(False)
+            self.practice_button.setEnabled(False)
             return False
         self.status.setText(_DEFAULT_STATUS)
         if not self.clusters:
@@ -91,6 +117,7 @@ class AnalysisPage(QWidget):
                 "还没有足够的错词数据。可先运行 demo 数据脚本体验。"
             )
             self.ai_button.setEnabled(False)
+            self.practice_button.setEnabled(False)
             return True
         for cluster in self.clusters:
             self.list_widget.addItem(
@@ -119,7 +146,46 @@ class AnalysisPage(QWidget):
             )
 
     def _selection_changed(self, row: int) -> None:
-        self.ai_button.setEnabled(0 <= row < len(self.clusters) and self.worker is None)
+        selected = 0 <= row < len(self.clusters) and self.worker is None
+        self._render_word_detail_actions(row)
+        self.ai_button.setEnabled(selected)
+        self.practice_button.setEnabled(selected and self.on_start_practice is not None)
+
+    def _render_word_detail_actions(self, row: int) -> None:
+        self._clear_word_detail_actions()
+        if self.on_open_word is None or not (0 <= row < len(self.clusters)):
+            return
+        for word in self.clusters[row].words:
+            button = QPushButton(f"查看 {word} 词卡")
+            button.setObjectName("LinkButton")
+            button.clicked.connect(
+                lambda _checked=False, value=word: self.on_open_word(
+                    LinkedWordReference(word=value, trust="source_validated")
+                )
+            )
+            self.word_detail_layout.addWidget(button)
+        self.word_detail_layout.addStretch()
+
+    def _clear_word_detail_actions(self) -> None:
+        while self.word_detail_layout.count():
+            item = self.word_detail_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def practice_selected(self) -> None:
+        row = self.list_widget.currentRow()
+        if (
+            self.worker is not None
+            or not (0 <= row < len(self.clusters))
+            or self.on_start_practice is None
+        ):
+            return
+        cluster = self.clusters[row]
+        self.on_start_practice(
+            cluster.word_ids,
+            " / ".join(cluster.words),
+        )
 
     def analyze_selected(self) -> None:
         row = self.list_widget.currentRow()
@@ -168,6 +234,15 @@ class AnalysisPage(QWidget):
         self.ai_button.setEnabled(
             not busy and 0 <= self.list_widget.currentRow() < len(self.clusters)
         )
+        self.practice_button.setEnabled(
+            not busy
+            and self.on_start_practice is not None
+            and 0 <= self.list_widget.currentRow() < len(self.clusters)
+        )
+        for index in range(self.word_detail_layout.count()):
+            widget = self.word_detail_layout.itemAt(index).widget()
+            if widget is not None:
+                widget.setEnabled(not busy)
 
     def _worker_finished(self) -> None:
         if self.worker is not None:

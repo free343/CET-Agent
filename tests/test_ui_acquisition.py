@@ -315,12 +315,15 @@ def test_mastered_page_restores_selected_word(database, word_id) -> None:
     app = QApplication.instance() or QApplication([])
     mastery = MasteryService(database)
     mastery.set_mastered(word_id, True)
-    page = MasteredPage(mastery)
+    opened = []
+    page = MasteredPage(mastery, on_open_word=opened.append)
     page.show()
     page.refresh()
     _wait_until_idle(page, app)
     assert page.word_list.count() == 1
     page.word_list.setCurrentRow(0)
+    page.detail_button.click()
+    assert [reference.word for reference in opened] == ["adapt"]
     page.restore_button.click()
     _wait_until_idle(page, app)
     assert page.word_list.count() == 0

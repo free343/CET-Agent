@@ -9,12 +9,36 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from app.db.models import WordLearningAid, WordLexicalFact
+from app.db.models import Word, WordLearningAid, WordLevel, WordLexicalFact
 from app.services.lexical_fact_view import LexicalFactSection, LinkedWordReference
 from app.services.word_detail_service import WordDetailService, WordDetailView
 from app.ui.widgets.lexical_link_label import LexicalLinkLabel
 from app.ui.widgets.review_card import ReviewCardWidget
 from app.ui.word_detail_controller import WordDetailController
+
+
+def test_word_lookup_prioritizes_exact_headword_and_bounds_invalid_input(
+    database,
+    word_id,
+) -> None:
+    with database.session() as session:
+        for word in ("adaptation", "adapter"):
+            session.add(
+                Word(
+                    word=word,
+                    meaning="相关词",
+                    level=WordLevel.CET4,
+                )
+            )
+
+    service = WordDetailService(database)
+    results = service.search_words("  ADAPT ", limit=2)
+
+    assert [item.word for item in results] == ["adapt", "adaptation"]
+    assert results[0].word_id == word_id
+    assert results[0].reference.word == "adapt"
+    assert service.search_words("adapt?", limit=10) == []
+    assert service.search_words("", limit=10) == []
 
 
 def test_in_bank_detail_reuses_word_and_linked_fact_projection(
@@ -203,5 +227,7 @@ def test_detail_controller_ignores_result_from_previous_generation() -> None:
         if worker is not None:
             worker.wait(2_000)
     app.processEvents()
+    assert first_worker.parent() is None
+    assert controller.worker is None
     controller.close()
     controller.dialog.deleteLater()

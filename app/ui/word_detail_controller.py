@@ -88,4 +88,6 @@ class WordDetailController(QObject):
         self._workers.discard(worker)
         if self.worker is worker:
             self.worker = None
+        worker.setParent(None)
+        worker.deleteLater()
         worker.deleteLater()

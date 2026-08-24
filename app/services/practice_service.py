@@ -60,6 +60,8 @@ class PracticeService:
         exclude_word_ids: Collection[int] = (),
     ) -> list[ReviewItem]:
         selected_scope = PracticeScope(scope)
+        if selected_scope is PracticeScope.CONFUSION_CLUSTER:
+            raise ValueError("Confusion-cluster practice requires explicit word IDs")
         checked_at = ensure_utc(now or utc_now())
         safe_limit = max(1, min(int(limit), 200))
         excluded_ids = tuple(
@@ -133,6 +135,58 @@ class PracticeService:
                 word_ids = list(session.scalars(statement.limit(safe_limit)))
 
         return self.review_items.get_words_by_ids(word_ids)
+
+    def get_words_by_ids(
+        self,
+        word_ids: Collection[int],
+        limit: int = 30,
+        now: datetime | None = None,
+        *,
+        exclude_word_ids: Collection[int] = (),
+    ) -> list[ReviewItem]:
+        """Return an ordered, learned-only custom practice queue.
+
+        The caller supplies a deterministic word-ID order (for example, the
+        core of one confusion cluster). Eligibility is checked here instead
+        of trusting the source page: untouched, mastered, future-imported,
+        cross-level, duplicate, and explicitly completed IDs are removed
+        before card projections are built.
+        """
+        checked_at = ensure_utc(now or utc_now())
+        safe_limit = max(1, min(int(limit), 200))
+        ordered_ids = list(dict.fromkeys(int(word_id) for word_id in word_ids))[:10_000]
+        excluded_ids = {int(word_id) for word_id in exclude_word_ids}
+        ordered_ids = [
+            word_id for word_id in ordered_ids if word_id not in excluded_ids
+        ]
+        if not ordered_ids:
+            return []
+
+        conditions = [
+            LearningState.word_id.in_(ordered_ids),
+            LearningState.review_count > 0,
+            LearningState.last_review_at.is_not(None),
+            LearningState.last_review_at <= checked_at,
+            is_not_mastered(),
+            *(
+                (Word.level == self.study_level,)
+                if self.study_level is not None
+                else ()
+            ),
+        ]
+        with self.database.session() as session:
+            eligible_ids = set(
+                session.scalars(
+                    select(LearningState.word_id)
+                    .join(Word, LearningState.word_id == Word.id)
+                    .where(*conditions)
+                )
+            )
+
+        selected_ids = [word_id for word_id in ordered_ids if word_id in eligible_ids][
+            :safe_limit
+        ]
+        return self.review_items.get_words_by_ids(selected_ids)
 
     def record_attempt(
         self,

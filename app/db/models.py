@@ -80,6 +80,7 @@ class PracticeScope(str, Enum):
     RECENT = "RECENT"
     WRONG = "WRONG"
     FAVORITES = "FAVORITES"
+    CONFUSION_CLUSTER = "CONFUSION_CLUSTER"
 
 
 class AcquisitionTaskType(str, Enum):

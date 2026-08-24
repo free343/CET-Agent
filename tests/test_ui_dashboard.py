@@ -48,7 +48,8 @@ class BlockingDashboardService:
 def test_dashboard_refresh_runs_off_ui_thread_and_renders_result() -> None:
     app = QApplication.instance() or QApplication([])
     service = BlockingDashboardService()
-    page = DashboardPage(service)
+    opened = []
+    page = DashboardPage(service, on_open_word=opened.append)
     ui_thread_id = threading.get_ident()
 
     try:
@@ -67,6 +68,9 @@ def test_dashboard_refresh_runs_off_ui_thread_and_renders_result() -> None:
         assert page.streak.value.text() == "3 天"
         assert page.wrong_words.text() == "adapt  × 2"
         assert page.clock_warning.isHidden() is False
+        assert page.wrong_actions_layout.count() == 2
+        page.wrong_actions_layout.itemAt(0).widget().click()
+        assert [reference.word for reference in opened] == ["adapt"]
     finally:
         service.release.set()
         if page.worker is not None:

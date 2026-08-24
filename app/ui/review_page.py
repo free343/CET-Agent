@@ -134,6 +134,8 @@ class ReviewPage(QWidget):
         self._last_submission: ReviewSubmission | None = None
         self._learning_intro_active = False
         self._practice_completed_ids: set[int] = set()
+        self.practice_cluster_word_ids: tuple[int, ...] = ()
+        self.practice_cluster_label = ""
 
         workspace = QHBoxLayout(self)
         workspace.setContentsMargins(0, 0, 0, 0)
@@ -150,6 +152,7 @@ class ReviewPage(QWidget):
         heading.addWidget(self.title)
         heading.addStretch()
         self.practice_scope_combo: QComboBox | None = None
+        self.practice_cluster_exit_button: QPushButton | None = None
         if self.session_mode is StudySessionMode.PRACTICE:
             scope_label = QLabel("练习范围")
             scope_label.setStyleSheet("color: #64748b;")
@@ -165,6 +168,14 @@ class ReviewPage(QWidget):
                 self._practice_scope_changed
             )
             heading.addWidget(self.practice_scope_combo)
+            self.practice_cluster_exit_button = QPushButton("退出词簇练习")
+            self.practice_cluster_exit_button.setObjectName("SecondaryButton")
+            self.practice_cluster_exit_button.setToolTip("返回所选的常规自由复习范围")
+            self.practice_cluster_exit_button.clicked.connect(
+                self._clear_confusion_cluster
+            )
+            self.practice_cluster_exit_button.hide()
+            heading.addWidget(self.practice_cluster_exit_button)
         self.assistant_toggle: QPushButton | None = None
         if assistant_service is not None:
             self.assistant_toggle = QPushButton("隐藏 AI 助手")
@@ -261,6 +272,39 @@ class ReviewPage(QWidget):
     def load_queue(self) -> bool:
         return self._start_queue_load(reset_progress=True)
 
+    def set_confusion_cluster(
+        self,
+        word_ids: tuple[int, ...] | list[int],
+        label: str,
+    ) -> bool:
+        """Configure a bounded cluster queue before the main window loads it."""
+        if (
+            self.session_mode is not StudySessionMode.PRACTICE
+            or self.practice_service is None
+            or self.worker is not None
+        ):
+            return False
+        normalized_ids = tuple(dict.fromkeys(int(word_id) for word_id in word_ids))[:8]
+        if not normalized_ids:
+            return False
+        self.practice_cluster_word_ids = normalized_ids
+        self.practice_cluster_label = " ".join(label.split())[:120]
+        self._practice_completed_ids.clear()
+        self._clear_undo()
+        self.title.setText(self._page_title())
+        self._refresh_cluster_controls()
+        return True
+
+    def _clear_confusion_cluster(self) -> None:
+        if self.worker is not None or not self.practice_cluster_word_ids:
+            return
+        self.practice_cluster_word_ids = ()
+        self.practice_cluster_label = ""
+        self._practice_completed_ids.clear()
+        self.title.setText(self._page_title())
+        self._refresh_cluster_controls()
+        self.load_queue()
+
     def _start_queue_load(self, *, reset_progress: bool) -> bool:
         if self.worker is not None:
             return False
@@ -292,6 +336,7 @@ class ReviewPage(QWidget):
         self.worker.failed.connect(self._task_failed)
         self.worker.finished.connect(self._worker_finished)
         self.worker.start()
+        self._refresh_cluster_controls()
         return True
 
     def _queue_loader(self) -> Callable[[], list[ReviewItem]]:
@@ -302,6 +347,12 @@ class ReviewPage(QWidget):
         if self.session_mode is StudySessionMode.PRACTICE:
             if self.practice_service is None:
                 raise RuntimeError("PracticeService is unavailable")
+            if self.practice_cluster_word_ids:
+                return partial(
+                    self.practice_service.get_words_by_ids,
+                    self.practice_cluster_word_ids,
+                    exclude_word_ids=tuple(self._practice_completed_ids),
+                )
             return partial(
                 self.practice_service.get_words,
                 self.practice_scope,
@@ -482,7 +533,11 @@ class ReviewPage(QWidget):
                     self.current.word_id,
                     is_correct=is_correct,
                     response_time_ms=response_ms,
-                    scope=self.practice_scope,
+                    scope=(
+                        PracticeScope.CONFUSION_CLUSTER
+                        if self.practice_cluster_word_ids
+                        else self.practice_scope
+                    ),
                     question_type=self._question_type(),
                     user_answer=self.selected_answer,
                 ),
@@ -873,6 +928,7 @@ class ReviewPage(QWidget):
         self._refresh_favorite_button()
         self._refresh_mastered_button()
         self._refresh_undo_button()
+        self._refresh_cluster_controls()
 
     def _render_learning_aids(self) -> None:
         if self.current is None:
@@ -962,6 +1018,13 @@ class ReviewPage(QWidget):
         self.undo_button.setVisible(available)
         self.undo_button.setEnabled(available and self.worker is None)
 
+    def _refresh_cluster_controls(self) -> None:
+        if self.practice_cluster_exit_button is None:
+            return
+        visible = bool(self.practice_cluster_word_ids)
+        self.practice_cluster_exit_button.setVisible(visible)
+        self.practice_cluster_exit_button.setEnabled(visible and self.worker is None)
+
     def _show_error(self, message: str) -> None:
         QMessageBox.warning(self, "CET-Agent", message)
 
@@ -979,9 +1042,14 @@ class ReviewPage(QWidget):
         if not isinstance(value, str):
             return
         selected = PracticeScope(value)
-        if selected is self.practice_scope:
+        if selected is self.practice_scope and not self.practice_cluster_word_ids:
             return
         self.practice_scope = selected
+        if self.practice_cluster_word_ids:
+            self.practice_cluster_word_ids = ()
+            self.practice_cluster_label = ""
+            self.title.setText(self._page_title())
+            self._refresh_cluster_controls()
         if self.worker is not None:
             self._load_after_worker = True
             self._reset_progress_after_worker = True
@@ -989,6 +1057,11 @@ class ReviewPage(QWidget):
         self.load_queue()
 
     def _page_title(self) -> str:
+        if (
+            self.session_mode is StudySessionMode.PRACTICE
+            and self.practice_cluster_label
+        ):
+            return f"词簇专项 · {self.practice_cluster_label}"
         return {
             StudySessionMode.COMBINED: "单词复习",
             StudySessionMode.LEARN: "学习新词",
@@ -997,6 +1070,11 @@ class ReviewPage(QWidget):
         }[self.session_mode]
 
     def _loading_text(self) -> str:
+        if (
+            self.session_mode is StudySessionMode.PRACTICE
+            and self.practice_cluster_label
+        ):
+            return "正在加载词簇专项练习…"
         return {
             StudySessionMode.COMBINED: "正在加载复习任务…",
             StudySessionMode.LEARN: "正在加载待学新词…",
@@ -1005,6 +1083,14 @@ class ReviewPage(QWidget):
         }[self.session_mode]
 
     def _completion_copy(self) -> tuple[str, str]:
+        if (
+            self.session_mode is StudySessionMode.PRACTICE
+            and self.practice_cluster_label
+        ):
+            return (
+                "这个词簇已练完一轮",
+                "可退出专项练习，切换常规自由复习范围，或回到易混词分析。",
+            )
         return {
             StudySessionMode.COMBINED: (
                 "今日复习已完成",
@@ -1025,6 +1111,11 @@ class ReviewPage(QWidget):
         }[self.session_mode]
 
     def _empty_progress_text(self) -> str:
+        if (
+            self.session_mode is StudySessionMode.PRACTICE
+            and self.practice_cluster_label
+        ):
+            return "0 个可练词簇单词"
         return {
             StudySessionMode.COMBINED: "0 个待复习",
             StudySessionMode.LEARN: "0 个待学新词",

@@ -22,7 +22,8 @@ def test_wordbook_page_lists_and_removes_a_favorite(database, word_id) -> None:
     app = QApplication.instance() or QApplication([])
     service = WordbookService(database)
     service.set_favorite(word_id, True)
-    page = WordbookPage(service)
+    opened = []
+    page = WordbookPage(service, on_open_word=opened.append)
 
     page.refresh()
     _wait_until_idle(page, app)
@@ -33,6 +34,8 @@ def test_wordbook_page_lists_and_removes_a_favorite(database, word_id) -> None:
     assert "1 个收藏" in page.count_label.text()
 
     page.word_list.setCurrentRow(0)
+    page.detail_button.click()
+    assert [reference.word for reference in opened] == ["adapt"]
     page.remove_button.click()
     _wait_until_idle(page, app)
 

@@ -14,6 +14,10 @@ QLabel#Word { font-size: 38px; font-weight: 700; color: #111827; }
 QLabel#Phonetic { color: #64748b; font-size: 17px; }
 QPushButton#PrimaryButton { background: #2563eb; color: white; border: none; border-radius: 8px; padding: 10px 18px; font-weight: 600; }
 QPushButton#PrimaryButton:hover { background: #1d4ed8; }
+QPushButton#SecondaryButton { background: white; color: #334155; border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px 14px; }
+QPushButton#SecondaryButton:hover { background: #eef2ff; color: #312e81; border-color: #818cf8; }
+QPushButton#LinkButton { background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; border-radius: 7px; padding: 6px 10px; }
+QPushButton#LinkButton:hover { background: #e0e7ff; border-color: #818cf8; }
 QPushButton#AdvancedRetryButton { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; border-radius: 8px; padding: 8px 14px; font-weight: 600; }
 QPushButton#AdvancedRetryButton:hover { background: #e0e7ff; border-color: #818cf8; }
 QPushButton#RatingButton { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 14px; }
@@ -46,6 +50,9 @@ QListWidget#WordbookList::item:selected { background: #eef2ff; color: #312e81; }
 QListWidget#MasteredList { background: white; border: 1px solid #d7dce5; border-radius: 10px; padding: 6px; }
 QListWidget#MasteredList::item { color: #1e293b; border-bottom: 1px solid #eef2f7; padding: 11px 10px; }
 QListWidget#MasteredList::item:selected { background: #ecfdf5; color: #166534; }
+QListWidget#VocabularyList { background: white; border: 1px solid #d7dce5; border-radius: 10px; padding: 6px; }
+QListWidget#VocabularyList::item { color: #1e293b; border-bottom: 1px solid #eef2f7; padding: 11px 10px; }
+QListWidget#VocabularyList::item:selected { background: #eef2ff; color: #312e81; }
 QPushButton#ChoiceButton { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; text-align: left; }
 QPushButton#ChoiceButton:hover { border-color: #2563eb; background: #eff6ff; }
 QLineEdit, QTextEdit { background: white; border: 1px solid #d7dce5; border-radius: 8px; padding: 9px; }

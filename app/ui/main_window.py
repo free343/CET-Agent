@@ -44,6 +44,7 @@ from app.ui.mastered_page import MasteredPage
 from app.ui.review_page import ReviewPage, StudySessionMode
 from app.ui.settings_page import SettingsPage
 from app.ui.theme import APP_STYLESHEET
+from app.ui.vocabulary_page import VocabularyPage
 from app.ui.widgets.async_worker import AsyncWorker
 from app.ui.widgets.reminder_banner import ReminderBanner
 from app.ui.word_detail_controller import WordDetailController
@@ -106,16 +107,11 @@ class MainWindow(QMainWindow):
         self.mastery_service = mastery_service or MasteryService(
             review_service.database
         )
-        self.word_detail_controller = (
-            WordDetailController(word_detail_service, self)
-            if word_detail_service is not None
-            else None
+        detail_service = word_detail_service or WordDetailService(
+            review_service.database
         )
-        linked_word_callback = (
-            self.word_detail_controller.open
-            if self.word_detail_controller is not None
-            else None
-        )
+        self.word_detail_controller = WordDetailController(detail_service, self)
+        linked_word_callback = self.word_detail_controller.open
 
         root = QWidget()
         root_layout = QHBoxLayout(root)
@@ -133,9 +129,22 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(brand)
 
         self.pages = QStackedWidget()
-        self.dashboard_page = DashboardPage(learning_service)
-        self.wordbook_page = WordbookPage(wordbook_service)
-        self.mastered_page = MasteredPage(self.mastery_service)
+        self.dashboard_page = DashboardPage(
+            learning_service,
+            on_open_word=linked_word_callback,
+        )
+        self.vocabulary_page = VocabularyPage(
+            detail_service,
+            on_open_word=linked_word_callback,
+        )
+        self.wordbook_page = WordbookPage(
+            wordbook_service,
+            on_open_word=linked_word_callback,
+        )
+        self.mastered_page = MasteredPage(
+            self.mastery_service,
+            on_open_word=linked_word_callback,
+        )
         self.learning_page = AcquisitionPage(
             self.acquisition_service,
             on_changed=self._review_completed,
@@ -173,11 +182,17 @@ class MainWindow(QMainWindow):
             self.review_page,
             self.practice_page,
         )
-        self.analysis_page = AnalysisPage(analysis_service, ai_service)
+        self.analysis_page = AnalysisPage(
+            analysis_service,
+            ai_service,
+            on_start_practice=self._start_confusion_practice,
+            on_open_word=linked_word_callback,
+        )
         self.chat_page = ChatPage(ai_service)
         self.settings_page = SettingsPage(settings)
         pages = (
             ("学习概览", self.dashboard_page),
+            ("词汇查找", self.vocabulary_page),
             ("学习新词", self.learning_page),
             ("到期复习", self.review_page),
             ("自由复习", self.practice_page),
@@ -244,6 +259,8 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(index)
         if target is self.dashboard_page:
             self.dashboard_page.refresh()
+        elif target is self.vocabulary_page:
+            self.vocabulary_page.refresh()
         elif target in study_pages:
             self._review_session_changed(True)
             target.load_queue()
@@ -268,6 +285,18 @@ class MainWindow(QMainWindow):
         self.show_page(self.pages.indexOf(self.review_page))
         self.raise_()
         self.activateWindow()
+
+    def _start_confusion_practice(
+        self,
+        word_ids: tuple[int, ...],
+        label: str,
+    ) -> None:
+        if not self.practice_page.set_confusion_cluster(word_ids, label):
+            self.analysis_page.status.setText(
+                "自由复习正在保存或加载，请稍后再启动词簇练习。"
+            )
+            return
+        self.show_page(self.pages.indexOf(self.practice_page))
 
     def _snooze_reminder(self) -> None:
         self.reminder_banner.hide()
@@ -425,6 +454,7 @@ class MainWindow(QMainWindow):
         workers.extend(
             (
                 self.wordbook_page.worker,
+                getattr(getattr(self, "vocabulary_page", None), "worker", None),
                 getattr(getattr(self, "mastered_page", None), "worker", None),
                 self.analysis_page.worker,
                 self.chat_page.worker,

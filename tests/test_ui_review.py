@@ -216,6 +216,58 @@ def test_free_practice_records_attempt_without_rescheduling(database, word_id) -
     page.deleteLater()
 
 
+def test_confusion_cluster_practice_is_custom_and_non_scheduling(
+    database,
+    word_id,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    review_service = ReviewService(database, WordLevel.CET4)
+    reviewed_at = utc_now() - timedelta(hours=1)
+    review_service.submit_review(
+        word_id,
+        Rating.GOOD,
+        500,
+        reviewed_at=reviewed_at,
+    )
+    with database.session() as session:
+        state = session.scalar(
+            select(LearningState).where(LearningState.word_id == word_id)
+        )
+        assert state is not None
+        scheduled_at = state.next_review_at
+
+    page = ReviewPage(
+        review_service,
+        session_mode=StudySessionMode.PRACTICE,
+        practice_service=PracticeService(database, WordLevel.CET4),
+        practice_scope=PracticeScope.RECENT,
+    )
+    assert page.set_confusion_cluster((word_id, word_id, 999_999), "adapt / adopt")
+    assert page.title.text() == "词簇专项 · adapt / adopt"
+    assert page.practice_cluster_exit_button.isHidden() is False
+
+    page.load_queue()
+    _wait_until_idle(page, app)
+    assert page.current is not None
+    assert page.current.word_id == word_id
+    page.reveal_answer()
+    page.submit(Rating.GOOD)
+    _wait_until_idle(page, app)
+
+    with database.session() as session:
+        state = session.scalar(
+            select(LearningState).where(LearningState.word_id == word_id)
+        )
+        assert state is not None
+        assert state.next_review_at == scheduled_at
+        assert session.scalar(select(func.count(ReviewLog.id))) == 1
+        practice = session.scalar(select(PracticeLog))
+        assert practice is not None
+        assert practice.practice_scope == PracticeScope.CONFUSION_CLUSTER.value
+    assert page.current is None
+    page.deleteLater()
+
+
 def test_review_page_toggles_current_word_favorite(database, word_id) -> None:
     app = QApplication.instance() or QApplication([])
     wordbook = WordbookService(database)

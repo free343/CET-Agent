@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.services.lexical_fact_view import LinkedWordReference
 from app.services.mastery_service import MasteredWordItem, MasteryService, MasteryUpdate
 from app.ui.widgets.async_worker import AsyncWorker
 
@@ -23,12 +25,18 @@ logger = logging.getLogger(__name__)
 
 
 class MasteredPage(QWidget):
-    def __init__(self, service: MasteryService) -> None:
+    def __init__(
+        self,
+        service: MasteryService,
+        on_open_word: Callable[[LinkedWordReference], None] | None = None,
+    ) -> None:
         super().__init__()
         self.service = service
+        self.on_open_word = on_open_word
         self.worker: AsyncWorker | None = None
         self.worker_action: str | None = None
         self._refresh_after_worker = False
+        self._items_by_id: dict[int, MasteredWordItem] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
@@ -55,6 +63,7 @@ class MasteredPage(QWidget):
         self.word_list = QListWidget()
         self.word_list.setObjectName("MasteredList")
         self.word_list.currentItemChanged.connect(self._selection_changed)
+        self.word_list.itemDoubleClicked.connect(self._item_double_clicked)
         layout.addWidget(self.word_list, 1)
 
         actions = QHBoxLayout()
@@ -63,6 +72,11 @@ class MasteredPage(QWidget):
         self.restore_button.setEnabled(False)
         self.restore_button.clicked.connect(self.restore_selected)
         actions.addWidget(self.restore_button)
+        self.detail_button = QPushButton("查看词卡")
+        self.detail_button.setObjectName("SecondaryButton")
+        self.detail_button.setEnabled(False)
+        self.detail_button.clicked.connect(self.open_selected)
+        actions.addWidget(self.detail_button)
         layout.addLayout(actions)
 
     def refresh(self) -> bool:
@@ -71,6 +85,7 @@ class MasteredPage(QWidget):
             return False
         self.status_label.setText("正在加载已掌握单词…")
         self.restore_button.setEnabled(False)
+        self.detail_button.setEnabled(False)
         self.worker_action = "load"
         self.worker = AsyncWorker(self.service.list_mastered, parent=self)
         self.worker.result_ready.connect(self._show_items)
@@ -80,6 +95,7 @@ class MasteredPage(QWidget):
         return True
 
     def _show_items(self, items: list[MasteredWordItem]) -> None:
+        self._items_by_id = {item.word_id: item for item in items}
         self.word_list.clear()
         for word in items:
             phonetic = f"  {word.phonetic}" if word.phonetic else ""
@@ -120,6 +136,28 @@ class MasteredPage(QWidget):
         self.worker.finished.connect(self._worker_finished)
         self.worker.start()
 
+    def open_selected(self) -> None:
+        if self.worker is not None or self.on_open_word is None:
+            return
+        item = self.word_list.currentItem()
+        if item is None:
+            return
+        word_id = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(word_id, int):
+            return
+        mastered = self._items_by_id.get(word_id)
+        if mastered is not None:
+            self.on_open_word(
+                LinkedWordReference(
+                    word=mastered.word,
+                    meaning=mastered.meaning,
+                    trust="source_validated",
+                )
+            )
+
+    def _item_double_clicked(self, _item: QListWidgetItem) -> None:
+        self.open_selected()
+
     def _restored(self, result: MasteryUpdate) -> None:
         if result.is_mastered:
             logger.error(
@@ -130,6 +168,11 @@ class MasteredPage(QWidget):
 
     def _selection_changed(self, current, _previous) -> None:
         self.restore_button.setEnabled(current is not None and self.worker is None)
+        self.detail_button.setEnabled(
+            current is not None
+            and self.worker is None
+            and self.on_open_word is not None
+        )
 
     def _task_failed(self, message: str) -> None:
         logger.error(
@@ -139,8 +182,10 @@ class MasteredPage(QWidget):
         )
         if self.worker_action == "load":
             self.word_list.clear()
+            self._items_by_id.clear()
             self.count_label.setText("— 个单词")
             self.restore_button.setEnabled(False)
+            self.detail_button.setEnabled(False)
             self.status_label.setText("暂时无法读取已掌握单词，请稍后重试。")
             return
         self.status_label.setText("暂时无法恢复学习，请稍后重试。")

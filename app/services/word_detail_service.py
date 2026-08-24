@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from app.db.database import Database
 from app.db.models import (
@@ -25,6 +25,7 @@ from app.services.lexical_fact_view import (
 )
 
 _HEADWORD_PATTERN = re.compile(r"^[A-Za-z]+(?:[-'][A-Za-z]+)*$")
+_SEARCH_PATTERN = re.compile(r"^[A-Za-z][A-Za-z'-]{0,99}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,11 +53,59 @@ class WordDetailView:
         return "词库外参考"
 
 
+@dataclass(frozen=True, slots=True)
+class WordLookupItem:
+    """Small local-bank result used by the bounded vocabulary search page."""
+
+    word_id: int
+    word: str
+    phonetic: str
+    meaning: str
+    level: str
+
+    @property
+    def reference(self) -> LinkedWordReference:
+        return LinkedWordReference(
+            word=self.word,
+            meaning=self.meaning,
+            trust="source_validated",
+        )
+
+
 class WordDetailService:
     """Load an existing word or a safe, non-persistent reference fallback."""
 
     def __init__(self, database: Database) -> None:
         self.database = database
+
+    def search_words(
+        self,
+        query: str,
+        limit: int = 50,
+    ) -> list[WordLookupItem]:
+        """Search the bundled bank by exact headword first, then prefix."""
+        normalized = _normalize_search_term(query)
+        if not normalized:
+            return []
+        safe_limit = max(1, min(int(limit), 100))
+        exact_rank = case((func.lower(Word.word) == normalized, 0), else_=1)
+        with self.database.session() as session:
+            words = session.scalars(
+                select(Word)
+                .where(func.lower(Word.word).like(f"{normalized}%"))
+                .order_by(exact_rank, Word.word.asc())
+                .limit(safe_limit)
+            ).all()
+            return [
+                WordLookupItem(
+                    word_id=word.id,
+                    word=word.word,
+                    phonetic=word.phonetic,
+                    meaning=word.meaning,
+                    level=word.level.value,
+                )
+                for word in words
+            ]
 
     def get_word_detail(self, reference: LinkedWordReference) -> WordDetailView:
         """Return a detail projection without writes, scheduling, or model calls."""
@@ -138,3 +187,10 @@ def _normalize_headword(value: str) -> str:
     if not word or len(word) > 100 or not _HEADWORD_PATTERN.fullmatch(word):
         raise ValueError("关联词不是受支持的单词格式")
     return word.casefold()
+
+
+def _normalize_search_term(value: str) -> str:
+    term = " ".join(str(value or "").split()).casefold()
+    if not term or not _SEARCH_PATTERN.fullmatch(term):
+        return ""
+    return term

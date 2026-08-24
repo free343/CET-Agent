@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from app.db.models import (
     FavoriteWord,
     LearningState,
+    MasteredWord,
     PracticeLog,
     ReviewLog,
     Word,
@@ -117,6 +118,49 @@ def test_practice_scopes_select_only_previously_learned_words(
         ids["wrong"],
         ids["favorite"],
     ]
+
+
+def test_custom_cluster_queue_preserves_order_and_filters_ineligible_words(
+    database,
+    word_id,
+) -> None:
+    ids = _seed_practice_history(database, word_id)
+    untouched_id = _add_word(database, "untouchedcluster", "未学习")
+    with database.session() as session:
+        session.add(MasteredWord(word_id=ids["wrong"]))
+
+    service = PracticeService(database, WordLevel.CET4, local_timezone=SHANGHAI)
+
+    items = service.get_words_by_ids(
+        [ids["wrong"], untouched_id, ids["favorite"], ids["favorite"]],
+        now=NOW,
+    )
+
+    assert [item.word_id for item in items] == [ids["favorite"]]
+    with pytest.raises(ValueError, match="explicit word IDs"):
+        service.get_words(PracticeScope.CONFUSION_CLUSTER, now=NOW)
+
+
+def test_custom_cluster_attempt_uses_dedicated_scope(database, word_id) -> None:
+    ReviewService(database, WordLevel.CET4).submit_review(
+        word_id,
+        Rating.GOOD,
+        500,
+        reviewed_at=NOW - timedelta(hours=1),
+    )
+    result = PracticeService(database, WordLevel.CET4).record_attempt(
+        word_id,
+        is_correct=True,
+        response_time_ms=100,
+        scope=PracticeScope.CONFUSION_CLUSTER,
+        practiced_at=NOW,
+    )
+
+    assert result.scope is PracticeScope.CONFUSION_CLUSTER
+    with database.session() as session:
+        practice = session.scalar(select(PracticeLog))
+        assert practice is not None
+        assert practice.practice_scope == PracticeScope.CONFUSION_CLUSTER.value
 
 
 def test_practice_attempt_is_logged_without_changing_fsrs(database, word_id) -> None:

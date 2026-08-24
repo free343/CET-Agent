@@ -44,6 +44,42 @@ def test_selected_cluster_has_explicit_readable_style() -> None:
     page.deleteLater()
 
 
+def test_selected_cluster_can_start_bounded_practice() -> None:
+    app = QApplication.instance() or QApplication([])
+    started: list[tuple[tuple[int, ...], str]] = []
+    page = AnalysisPage(
+        FakeAnalysisService(),
+        object(),
+        on_start_practice=lambda word_ids, label: started.append((word_ids, label)),
+    )
+    page.list_widget.setCurrentRow(0)
+    app.processEvents()
+
+    assert page.practice_button.isEnabled()
+    page.practice_button.click()
+    app.processEvents()
+
+    assert started == [((1, 2), "adapt / adopt")]
+    page.deleteLater()
+
+
+def test_selected_cluster_exposes_each_word_card_entry() -> None:
+    app = QApplication.instance() or QApplication([])
+    opened = []
+    page = AnalysisPage(
+        FakeAnalysisService(),
+        object(),
+        on_open_word=opened.append,
+    )
+    page.list_widget.setCurrentRow(0)
+    app.processEvents()
+
+    assert page.word_detail_layout.count() == 3
+    page.word_detail_layout.itemAt(0).widget().click()
+    assert [reference.word for reference in opened] == ["adapt"]
+    page.deleteLater()
+
+
 def test_refresh_clears_stale_analysis_and_error_status() -> None:
     app = QApplication.instance() or QApplication([])
     page = AnalysisPage(FakeAnalysisService(), object())
