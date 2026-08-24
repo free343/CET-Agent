@@ -24,6 +24,7 @@ from app.services.mastery_service import MasteryService
 from app.services.practice_service import PracticeService
 from app.services.reminder_service import ReminderService
 from app.services.review_service import ReviewService
+from app.services.word_detail_service import WordDetailService
 from app.services.wordbook_service import WordbookService
 from app.ui.main_window import MainWindow
 
@@ -56,6 +57,7 @@ def run(*, smoke_test: bool = False) -> int:
             settings,
             acquisition_service,
             mastery_service,
+            WordDetailService(database),
         )
         window.show()
         if smoke_test:

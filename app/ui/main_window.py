@@ -34,6 +34,7 @@ from app.services.mastery_service import MasteryService
 from app.services.practice_service import PracticeService
 from app.services.reminder_service import ReminderService, ReminderStatus
 from app.services.review_service import ReviewService
+from app.services.word_detail_service import WordDetailService
 from app.services.wordbook_service import WordbookService
 from app.ui.acquisition_page import AcquisitionPage
 from app.ui.analysis_page import AnalysisPage
@@ -45,6 +46,7 @@ from app.ui.settings_page import SettingsPage
 from app.ui.theme import APP_STYLESHEET
 from app.ui.widgets.async_worker import AsyncWorker
 from app.ui.widgets.reminder_banner import ReminderBanner
+from app.ui.word_detail_controller import WordDetailController
 from app.ui.wordbook_page import WordbookPage
 from app.utils.datetime_utils import ensure_utc, utc_now
 
@@ -84,6 +86,7 @@ class MainWindow(QMainWindow):
         settings: Settings,
         acquisition_service: AcquisitionService | None = None,
         mastery_service: MasteryService | None = None,
+        word_detail_service: WordDetailService | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("CET-Agent")
@@ -102,6 +105,16 @@ class MainWindow(QMainWindow):
         )
         self.mastery_service = mastery_service or MasteryService(
             review_service.database
+        )
+        self.word_detail_controller = (
+            WordDetailController(word_detail_service, self)
+            if word_detail_service is not None
+            else None
+        )
+        linked_word_callback = (
+            self.word_detail_controller.open
+            if self.word_detail_controller is not None
+            else None
         )
 
         root = QWidget()
@@ -130,6 +143,7 @@ class MainWindow(QMainWindow):
             assistant_service=ai_service,
             wordbook_service=wordbook_service,
             mastery_service=self.mastery_service,
+            on_linked_word=linked_word_callback,
         )
         self.review_page = ReviewPage(
             review_service,
@@ -140,6 +154,7 @@ class MainWindow(QMainWindow):
             learning_aid_feedback_service=learning_aid_feedback_service,
             mastery_service=self.mastery_service,
             session_mode=StudySessionMode.REVIEW,
+            on_linked_word=linked_word_callback,
         )
         self.practice_page = ReviewPage(
             review_service,
@@ -151,6 +166,7 @@ class MainWindow(QMainWindow):
             mastery_service=self.mastery_service,
             session_mode=StudySessionMode.PRACTICE,
             practice_service=practice_service,
+            on_linked_word=linked_word_callback,
         )
         self.study_pages = (
             self.learning_page,
@@ -376,6 +392,8 @@ class MainWindow(QMainWindow):
             self.reminder_timer.stop()
             self.reminder_wakeup_timer.stop()
             self.reminder_service.set_review_session_active(False)
+            if self.word_detail_controller is not None:
+                self.word_detail_controller.close()
             self._enqueue_reminder_task(
                 "release_review_session",
                 partial(self.reminder_service.publish_review_session, False),
@@ -413,6 +431,9 @@ class MainWindow(QMainWindow):
                 self.reminder_worker,
             )
         )
+        detail_controller = getattr(self, "word_detail_controller", None)
+        if detail_controller is not None:
+            workers.extend(detail_controller.active_workers())
         return [
             worker for worker in workers if worker is not None and worker.isRunning()
         ]

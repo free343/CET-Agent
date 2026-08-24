@@ -21,8 +21,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.domain.fsrs_scheduler import Rating
-from app.services.lexical_fact_view import LexicalFactSection
+from app.services.lexical_fact_view import LexicalFactSection, LinkedWordReference
 from app.ui.widgets.english_quiz_widget import EnglishQuizWidget
+from app.ui.widgets.lexical_link_label import LexicalLinkLabel
 from app.ui.widgets.meaning_quiz_widget import MeaningQuizWidget
 
 
@@ -40,6 +41,7 @@ class ReviewCardWidget(QFrame):
         on_choice: Callable[[int], None],
         on_rating: Callable[[Rating], None],
         on_report_learning_aid: Callable[[], None] | None = None,
+        on_linked_word: Callable[[LinkedWordReference], None] | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName("Card")
@@ -121,9 +123,13 @@ class ReviewCardWidget(QFrame):
             return group
 
         self.collocations_label = QLabel("")
-        self.word_family_label = QLabel("")
+        self.word_family_label = LexicalLinkLabel(
+            on_linked_word=on_linked_word,
+        )
         self.forms_label = QLabel("")
-        self.relations_label = QLabel("")
+        self.relations_label = LexicalLinkLabel(
+            on_linked_word=on_linked_word,
+        )
         for key, title, section_label in (
             ("forms", "词形", self.forms_label),
             ("collocations", "固定搭配", self.collocations_label),
@@ -246,9 +252,11 @@ class ReviewCardWidget(QFrame):
         self.collocations_label.setText(
             self._format_learning_aids(collocations, empty_text=collocation_empty)
         )
-        self.word_family_label.setText(
-            self._format_learning_aids(word_family, empty_text=family_empty)
-        )
+        family_text = self._format_learning_aids(word_family, empty_text=family_empty)
+        if isinstance(self.word_family_label, LexicalLinkLabel):
+            self.word_family_label.set_plain_text(family_text)
+        else:
+            self.word_family_label.setText(family_text)
         if has_learning_aid:
             status = "AI · 已反馈" if feedback_reported else "AI · 未审核"
             status_tooltip = (
@@ -302,7 +310,10 @@ class ReviewCardWidget(QFrame):
                 "relations": self.relations_label,
                 "derivatives": self.word_family_label,
             }[key]
-            label.setText(self._format_learning_aids(section.items))
+            if isinstance(label, LexicalLinkLabel):
+                label.set_items(section.items, section.item_references)
+            else:
+                label.setText(self._format_learning_aids(section.items))
             section_status = (
                 "AI · 已反馈"
                 if feedback_reported and not section.verified and section.reportable

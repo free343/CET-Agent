@@ -10,10 +10,21 @@ from pydantic import TypeAdapter, ValidationError
 from app.ai.schemas import LexicalParadigm, LexicalRelationCandidateGroup
 from app.db.models import WordLearningAid, WordLexicalFact
 from app.domain.lexical_display import format_part_of_speech
-from app.services.learning_aid_view import format_collocations, format_word_family
+from app.services.learning_aid_view import format_collocations
 
 _PARADIGM_ADAPTER = TypeAdapter(LexicalParadigm)
 _CANDIDATE_GROUP_ADAPTER = TypeAdapter(LexicalRelationCandidateGroup)
+
+
+@dataclass(frozen=True, slots=True)
+class LinkedWordReference:
+    """Bounded metadata used when a displayed lexical target is opened."""
+
+    word: str
+    part_of_speech: str = ""
+    meaning: str = ""
+    english_definition: str = ""
+    trust: str = "source_validated"
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +35,12 @@ class LexicalFactSection:
     status: str
     verified: bool
     reportable: bool = True
+    item_references: tuple[LinkedWordReference | None, ...] = ()
+
+    def reference_for(self, index: int) -> LinkedWordReference | None:
+        if 0 <= index < len(self.item_references):
+            return self.item_references[index]
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,18 +110,18 @@ def build_lexical_facts_view(
             )
         )
 
-    relation_items = _format_relations(fact)
-    candidate_relation_items = _format_relation_candidates(
+    relation_pairs = _relation_pairs(fact)
+    candidate_relation_pairs = _relation_candidate_pairs(
         fact,
         excluded_words=_relation_words(fact),
     )
-    relation_items = _unique_trimmed(
-        [*relation_items, *candidate_relation_items],
+    relation_pairs = _unique_pairs(
+        [*relation_pairs, *candidate_relation_pairs],
         8,
     )
-    if relation_items:
-        has_formal_relations = bool(_format_relations(fact))
-        has_candidate_relations = bool(candidate_relation_items)
+    if relation_pairs:
+        has_formal_relations = bool(_relation_pairs(fact))
+        has_candidate_relations = bool(candidate_relation_pairs)
         if has_candidate_relations and has_formal_relations:
             relation_status = "已验证 + 来源候选"
         elif has_candidate_relations:
@@ -115,23 +132,27 @@ def build_lexical_facts_view(
             LexicalFactSection(
                 key="relations",
                 title="近反义",
-                items=relation_items,
+                items=tuple(item for item, _reference in relation_pairs),
                 status=relation_status,
                 verified=not has_candidate_relations,
                 reportable=False,
+                item_references=tuple(reference for _item, reference in relation_pairs),
             )
         )
 
-    family = format_word_family(aid)
-    derivative_items = _format_derivatives(fact) + list(family)
-    if derivative_items:
+    derivative_pairs = [*_derivative_pairs(fact), *_family_pairs(aid)]
+    derivative_pairs = _unique_pairs(derivative_pairs, 6)
+    if derivative_pairs:
         sections.append(
             LexicalFactSection(
                 key="derivatives",
                 title="派生词",
-                items=tuple(derivative_items[:6]),
+                items=tuple(item for item, _reference in derivative_pairs),
                 status="AI · 已反馈" if feedback_reported else "AI · 未审核",
                 verified=False,
+                item_references=tuple(
+                    reference for _item, reference in derivative_pairs
+                ),
             )
         )
     return LexicalFactsView(tuple(sections), forms_status, relations_status)
@@ -165,17 +186,19 @@ def _format_forms(fact: WordLexicalFact | None) -> tuple[str, ...]:
     return tuple(_unique_trimmed(items, 8))
 
 
-def _format_relations(fact: WordLexicalFact | None) -> tuple[str, ...]:
+def _relation_pairs(
+    fact: WordLexicalFact | None,
+) -> list[tuple[str, LinkedWordReference]]:
     if fact is None:
-        return ()
+        return []
     try:
         raw = json.loads(fact.relations_json)
         if not isinstance(raw, list):
-            return ()
+            return []
     except (TypeError, ValueError):
-        return ()
-    items: list[str] = []
-    relation_labels = {"synonym": "近义", "antonym": "反义", "derivative": "派生"}
+        return []
+    items: list[tuple[str, LinkedWordReference]] = []
+    relation_labels = {"synonym": "近义", "antonym": "反义"}
     for group in raw:
         if not isinstance(group, dict):
             continue
@@ -190,25 +213,35 @@ def _format_relations(fact: WordLexicalFact | None) -> tuple[str, ...]:
             meaning = str(item.get("meaning") or "").strip()
             if word and meaning:
                 details = " ".join(value for value in (word, pos, meaning) if value)
-                items.append(f"{relation}：{details}")
-    return tuple(_unique_trimmed(items, 8))
+                items.append(
+                    (
+                        f"{relation}：{details}",
+                        LinkedWordReference(
+                            word=word,
+                            part_of_speech=pos,
+                            meaning=meaning,
+                            trust="source_validated",
+                        ),
+                    )
+                )
+    return list(_unique_pairs(items, 8))
 
 
-def _format_relation_candidates(
+def _relation_candidate_pairs(
     fact: WordLexicalFact | None,
     *,
     excluded_words: set[str],
-) -> tuple[str, ...]:
+) -> list[tuple[str, LinkedWordReference]]:
     if fact is None or fact.candidate_status != "candidate_only":
-        return ()
+        return []
     try:
         raw = json.loads(fact.candidate_relations_json)
         if not isinstance(raw, list):
-            return ()
+            return []
         groups = [_CANDIDATE_GROUP_ADAPTER.validate_python(item) for item in raw]
     except (TypeError, ValueError, ValidationError):
-        return ()
-    items: list[str] = []
+        return []
+    items: list[tuple[str, LinkedWordReference]] = []
     relation_labels = {"synonym": "近义", "antonym": "反义"}
     for group in groups:
         relation = relation_labels.get(group.relation_type, "关系候选")
@@ -226,8 +259,19 @@ def _format_relation_candidates(
                     )
                     if value
                 )
-                items.append(f"{relation}：{details}")
-    return tuple(_unique_trimmed(items, 8))
+                items.append(
+                    (
+                        f"{relation}：{details}",
+                        LinkedWordReference(
+                            word=item.word,
+                            part_of_speech=format_part_of_speech(group.part_of_speech),
+                            meaning=meaning,
+                            english_definition=item.english_definition,
+                            trust="source_candidate",
+                        ),
+                    )
+                )
+    return list(_unique_pairs(items, 8))
 
 
 def _relation_words(fact: WordLexicalFact | None) -> set[str]:
@@ -251,21 +295,77 @@ def _clean_cow_label(value: str) -> str:
     return " ".join(value.replace("+", "").split())
 
 
-def _format_derivatives(fact: WordLexicalFact | None) -> list[str]:
+def _derivative_pairs(
+    fact: WordLexicalFact | None,
+) -> list[tuple[str, LinkedWordReference]]:
     if fact is None:
         return []
     try:
         raw = json.loads(fact.relations_json)
     except (TypeError, ValueError):
         return []
-    items: list[str] = []
+    items: list[tuple[str, LinkedWordReference]] = []
     for group in raw if isinstance(raw, list) else []:
         if not isinstance(group, dict) or group.get("relation_type") != "derivative":
             continue
         for item in group.get("items", []):
             if isinstance(item, dict) and item.get("word") and item.get("meaning"):
-                items.append(f"{item['word']}｜{item['meaning']}")
-    return list(_unique_trimmed(items, 6))
+                word = str(item["word"]).strip()
+                meaning = str(item["meaning"]).strip()
+                pos = format_part_of_speech(str(group.get("part_of_speech") or ""))
+                details = f"{word}｜{meaning}"
+                items.append(
+                    (
+                        details,
+                        LinkedWordReference(
+                            word=word,
+                            part_of_speech=pos,
+                            meaning=meaning,
+                            trust="source_validated",
+                        ),
+                    )
+                )
+    return list(_unique_pairs(items, 6))
+
+
+def _family_pairs(
+    aid: WordLearningAid | None,
+) -> list[tuple[str, LinkedWordReference]]:
+    if aid is None:
+        return []
+    try:
+        raw = json.loads(aid.word_family_json)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(raw, list):
+        return []
+    items: list[tuple[str, LinkedWordReference]] = []
+    for item in raw[:4]:
+        if not isinstance(item, dict):
+            continue
+        word = str(item.get("word") or "").strip()
+        pos = str(item.get("part_of_speech") or "").strip()
+        meaning = str(item.get("meaning") or "").strip()
+        if not word or not meaning:
+            continue
+        display_pos = format_part_of_speech(pos) if pos else ""
+        display = (
+            f"{word} ({display_pos})｜{meaning}"
+            if display_pos
+            else f"{word}｜{meaning}"
+        )
+        items.append(
+            (
+                display,
+                LinkedWordReference(
+                    word=word,
+                    part_of_speech=display_pos,
+                    meaning=meaning,
+                    trust="ai_unreviewed",
+                ),
+            )
+        )
+    return items
 
 
 def _unique_trimmed(items: list[str], limit: int) -> tuple[str, ...]:
@@ -279,3 +379,19 @@ def _unique_trimmed(items: list[str], limit: int) -> tuple[str, ...]:
         if len(result) >= limit:
             break
     return tuple(result)
+
+
+def _unique_pairs(
+    items: list[tuple[str, LinkedWordReference]],
+    limit: int,
+) -> list[tuple[str, LinkedWordReference]]:
+    seen: set[str] = set()
+    result: list[tuple[str, LinkedWordReference]] = []
+    for item, reference in items:
+        cleaned = " ".join(str(item).split()).strip()[:240]
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            result.append((cleaned, reference))
+        if len(result) >= limit:
+            break
+    return result

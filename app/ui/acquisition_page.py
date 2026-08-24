@@ -24,6 +24,7 @@ from app.services.acquisition_service import (
     AcquisitionService,
     AcquisitionSubmission,
 )
+from app.services.lexical_fact_view import LinkedWordReference
 from app.services.mastery_service import MasteryService, MasteryUpdate
 from app.services.review_item_view import ReviewItem
 from app.services.wordbook_service import FavoriteUpdate, WordbookService
@@ -54,6 +55,7 @@ class AcquisitionPage(QWidget):
         assistant_service: ChatService | None = None,
         wordbook_service: WordbookService | None = None,
         mastery_service: MasteryService | None = None,
+        on_linked_word: Callable[[LinkedWordReference], None] | None = None,
     ) -> None:
         super().__init__()
         self.service = service
@@ -102,6 +104,7 @@ class AcquisitionPage(QWidget):
             on_mastered=self.toggle_mastered if mastery_service is not None else None,
             on_choice=self.select_meaning,
             on_rating=lambda _rating: None,
+            on_linked_word=on_linked_word,
         )
         self.word_label = self.card.word_label
         self.phonetic_label = self.card.phonetic_label

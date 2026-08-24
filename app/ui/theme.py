@@ -28,6 +28,18 @@ QLabel#LearningAidTitle { color: #334155; font-weight: 700; }
 QLabel#LearningAidStatus { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; border-radius: 7px; padding: 3px 7px; font-size: 12px; }
 QPushButton#LearningAidReportButton { background: transparent; color: #475569; border: 1px solid #cbd5e1; border-radius: 7px; padding: 5px 10px; }
 QPushButton#LearningAidReportButton:hover { background: #f1f5f9; color: #1e293b; }
+QDialog#WordDetailDialog { background: #f8fafc; }
+QLabel#WordDetailWord { font-size: 30px; font-weight: 700; color: #111827; }
+QLabel#WordDetailPhonetic { color: #64748b; font-size: 16px; }
+QLabel#WordDetailMeaning { color: #1e293b; font-size: 18px; font-weight: 600; }
+QLabel#WordDetailLevel { color: #64748b; }
+QLabel#WordDetailStatus { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; border-radius: 7px; padding: 5px 8px; }
+QLabel#WordDetailSectionTitle { color: #334155; font-weight: 700; padding-top: 5px; }
+QLabel#WordDetailText { color: #475569; line-height: 1.4; }
+QLabel#WordDetailLoading { color: #64748b; padding: 20px; }
+QPushButton#WordDetailBackButton, QPushButton#WordDetailCloseButton { background: white; color: #334155; border: 1px solid #cbd5e1; border-radius: 7px; padding: 6px 12px; }
+QPushButton#WordDetailBackButton:hover, QPushButton#WordDetailCloseButton:hover { background: #eef2ff; color: #312e81; border-color: #818cf8; }
+QScrollArea#WordDetailScroll { background: white; border: 1px solid #e2e8f0; border-radius: 9px; }
 QListWidget#WordbookList { background: white; border: 1px solid #d7dce5; border-radius: 10px; padding: 6px; }
 QListWidget#WordbookList::item { color: #1e293b; border-bottom: 1px solid #eef2f7; padding: 11px 10px; }
 QListWidget#WordbookList::item:selected { background: #eef2ff; color: #312e81; }

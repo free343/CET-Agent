@@ -30,6 +30,7 @@ from app.services.learning_aid_feedback_service import (
     LearningAidFeedbackService,
     LearningAidFeedbackUpdate,
 )
+from app.services.lexical_fact_view import LinkedWordReference
 from app.services.mastery_service import MasteryService, MasteryUpdate
 from app.services.practice_service import (
     PracticeScope,
@@ -98,6 +99,7 @@ class ReviewPage(QWidget):
         session_mode: StudySessionMode | str = StudySessionMode.COMBINED,
         practice_service: PracticeService | None = None,
         practice_scope: PracticeScope | str = PracticeScope.YESTERDAY,
+        on_linked_word: Callable[[LinkedWordReference], None] | None = None,
     ) -> None:
         super().__init__()
         self.service = service
@@ -180,6 +182,7 @@ class ReviewPage(QWidget):
             on_choice=self.select_meaning,
             on_rating=self.submit,
             on_report_learning_aid=self.report_learning_aid_issue,
+            on_linked_word=on_linked_word,
         )
         self.word_label = card.word_label
         self.phase_label = card.phase_label
