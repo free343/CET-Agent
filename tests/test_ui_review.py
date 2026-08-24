@@ -85,6 +85,40 @@ def test_review_page_completes_one_review(database, word_id) -> None:
     page.deleteLater()
 
 
+def test_review_completion_copy_includes_recall_and_next_due_summary(database) -> None:
+    QApplication.instance() or QApplication([])
+    page = ReviewPage(ReviewService(database), session_mode=StudySessionMode.REVIEW)
+    page._session_completed = 2
+    page._session_correct = 1
+    page._session_wrong = 1
+    page._session_review_due_times.append(datetime(2026, 8, 25, 9, tzinfo=UTC))
+
+    title, detail = page._completion_copy()
+
+    assert title == "当前没有到期复习"
+    assert "本轮完成 2 个：答对 1，需加强 1" in detail
+    assert "最早复习" in detail
+    page.deleteLater()
+
+
+def test_practice_completion_copy_explains_recall_result(database) -> None:
+    QApplication.instance() or QApplication([])
+    page = ReviewPage(
+        ReviewService(database),
+        session_mode=StudySessionMode.PRACTICE,
+        practice_service=PracticeService(database),
+    )
+    page._session_completed = 3
+    page._session_correct = 2
+    page._session_wrong = 1
+
+    _, detail = page._completion_copy()
+
+    assert "本轮完成 3 个：想起 2，没想起 1" in detail
+    assert "不会推迟正式复习日期" in detail
+    page.deleteLater()
+
+
 def test_review_page_shows_phase_and_session_progress(database, word_id) -> None:
     app = QApplication.instance() or QApplication([])
     page = ReviewPage(ReviewService(database))

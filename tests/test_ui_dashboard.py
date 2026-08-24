@@ -78,6 +78,31 @@ def test_dashboard_refresh_runs_off_ui_thread_and_renders_result() -> None:
         page.deleteLater()
 
 
+def test_dashboard_metric_actions_open_learning_routes() -> None:
+    app = QApplication.instance() or QApplication([])
+
+    class ImmediateDashboardService:
+        @staticmethod
+        def dashboard_stats() -> DashboardStats:
+            return STATS
+
+    routes: list[str] = []
+    page = DashboardPage(
+        ImmediateDashboardService(),
+        on_open_new=lambda: routes.append("new"),
+        on_open_due=lambda: routes.append("due"),
+    )
+    page.refresh()
+    _wait_until_idle(page, app)
+
+    assert page.new.action_button is not None
+    assert page.due.action_button is not None
+    page.new.action_button.click()
+    page.due.action_button.click()
+    assert routes == ["new", "due"]
+    page.deleteLater()
+
+
 def test_dashboard_coalesces_refresh_while_worker_is_running() -> None:
     app = QApplication.instance() or QApplication([])
     service = BlockingDashboardService()

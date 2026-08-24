@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime
 from functools import partial
 
 from PySide6.QtCore import Qt
@@ -77,6 +78,11 @@ class AcquisitionPage(QWidget):
         self._next_item: ReviewItem | None = None
         self._session_completed = 0
         self._session_loaded = 0
+        self._session_attempts = 0
+        self._session_mistakes = 0
+        self._session_stage_attempts: dict[int, int] = {}
+        self._session_stage_mistakes: dict[int, int] = {}
+        self._session_first_review_at: datetime | None = None
         self.started_at = time.monotonic()
 
         workspace = QHBoxLayout(self)
@@ -176,6 +182,11 @@ class AcquisitionPage(QWidget):
         if reset_progress:
             self._session_completed = 0
             self._session_loaded = 0
+            self._session_attempts = 0
+            self._session_mistakes = 0
+            self._session_stage_attempts.clear()
+            self._session_stage_mistakes.clear()
+            self._session_first_review_at = None
         self._released_group_available = False
         self._completion_check_failed = False
         self.queue = []
@@ -329,7 +340,22 @@ class AcquisitionPage(QWidget):
             self._sync_assistant_context()
             self._load_after_worker = True
             return
-        self._session_completed += 1 if result.completed else 0
+        self._session_attempts += 1
+        self._session_stage_attempts[result.level_before] = (
+            self._session_stage_attempts.get(result.level_before, 0) + 1
+        )
+        if not result.is_correct:
+            self._session_mistakes += 1
+            self._session_stage_mistakes[result.level_before] = (
+                self._session_stage_mistakes.get(result.level_before, 0) + 1
+            )
+        if result.completed:
+            self._session_completed += 1
+            if result.first_review_at is not None and (
+                self._session_first_review_at is None
+                or result.first_review_at < self._session_first_review_at
+            ):
+                self._session_first_review_at = result.first_review_at
         if self.on_changed:
             self.on_changed()
         self._answer_revealed = True
@@ -512,7 +538,7 @@ class AcquisitionPage(QWidget):
         self, detail: str = "本组单词已经完成，可以继续学习下一组。"
     ) -> None:
         self.word_label.setText("本组新词已完成")
-        self.phonetic_label.setText(detail)
+        self.phonetic_label.setText(f"{detail} {self._session_summary()}")
         self.phase_label.setText("本轮完成")
         self.answer_label.clear()
         self.example_label.clear()
@@ -530,6 +556,28 @@ class AcquisitionPage(QWidget):
         self.continue_button.setEnabled(self.worker is None)
         self.continue_button.show()
         self.progress.setText(f"本轮完成 {self._session_completed} 个")
+
+    def _session_summary(self) -> str:
+        if self._session_attempts <= 0:
+            return "本轮尚未记录学习尝试。"
+        stage_parts = []
+        for stage in (0, 1, 2):
+            attempts = self._session_stage_attempts.get(stage, 0)
+            if attempts:
+                stage_parts.append(
+                    f"阶段{stage} {attempts}次/{self._session_stage_mistakes.get(stage, 0)}错"
+                )
+        first_due = (
+            self._session_first_review_at.astimezone().strftime("%m-%d %H:%M")
+            if self._session_first_review_at is not None
+            else "暂无"
+        )
+        stages = "，".join(stage_parts) if stage_parts else "暂无阶段明细"
+        return (
+            f"本轮尝试 {self._session_attempts} 次，错误 {self._session_mistakes} 次"
+            f"（{stages}）；新毕业 {self._session_completed} 个，"
+            f"首个正式复习 {first_due}。"
+        )
 
     def _show_loading(self, text: str) -> None:
         self._reset_card()

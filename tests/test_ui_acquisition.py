@@ -58,6 +58,27 @@ def _wait_until_idle(widget, app: QApplication) -> None:
     assert widget.worker is None
 
 
+def test_acquisition_completion_summary_includes_stages_and_first_due(
+    database,
+) -> None:
+    QApplication.instance() or QApplication([])
+    page = AcquisitionPage(AcquisitionService(database, WordLevel.CET4))
+    page._session_attempts = 4
+    page._session_mistakes = 1
+    page._session_completed = 1
+    page._session_stage_attempts = {0: 2, 2: 2}
+    page._session_stage_mistakes = {0: 1}
+    page._session_first_review_at = datetime(2026, 8, 25, 9, tzinfo=UTC)
+
+    page._show_completion()
+
+    assert "本轮尝试 4 次，错误 1 次" in page.phonetic_label.text()
+    assert "阶段0 2次/1错" in page.phonetic_label.text()
+    assert "新毕业 1 个" in page.phonetic_label.text()
+    assert "首个正式复习" in page.phonetic_label.text()
+    page.deleteLater()
+
+
 def _add_distractors(database) -> None:
     with database.session() as session:
         for index, word in enumerate(("adopt", "adept", "accept"), start=1):

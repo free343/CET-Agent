@@ -132,6 +132,8 @@ class MainWindow(QMainWindow):
         self.dashboard_page = DashboardPage(
             learning_service,
             on_open_word=linked_word_callback,
+            on_open_new=self._open_learning_route,
+            on_open_due=self._open_review_route,
         )
         self.vocabulary_page = VocabularyPage(
             detail_service,
@@ -270,6 +272,12 @@ class MainWindow(QMainWindow):
             self.mastered_page.refresh()
         elif target is self.analysis_page:
             self.analysis_page.refresh()
+
+    def _open_learning_route(self) -> None:
+        self.show_page(self.pages.indexOf(self.learning_page))
+
+    def _open_review_route(self) -> None:
+        self.show_page(self.pages.indexOf(self.review_page))
 
     def _check_reminder(self) -> None:
         if self._shutdown_started:

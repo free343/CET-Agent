@@ -6,6 +6,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime
 from enum import Enum
 from functools import partial
 
@@ -129,6 +130,9 @@ class ReviewPage(QWidget):
         self._rating_shortcuts_ready_at = float("inf")
         self._session_completed = 0
         self._session_loaded = 0
+        self._session_correct = 0
+        self._session_wrong = 0
+        self._session_review_due_times: list[datetime] = []
         self._pending_review_item: ReviewItem | None = None
         self._last_reviewed_item: ReviewItem | None = None
         self._last_submission: ReviewSubmission | None = None
@@ -311,6 +315,9 @@ class ReviewPage(QWidget):
         if reset_progress:
             self._session_completed = 0
             self._session_loaded = 0
+            self._session_correct = 0
+            self._session_wrong = 0
+            self._session_review_due_times.clear()
             self._practice_completed_ids.clear()
             self._clear_undo()
         self.queue = []
@@ -740,6 +747,11 @@ class ReviewPage(QWidget):
         self._last_submission = submission
         self._pending_review_item = None
         self._session_completed += 1
+        if submission.is_correct:
+            self._session_correct += 1
+        else:
+            self._session_wrong += 1
+        self._session_review_due_times.append(submission.schedule.next_review_at)
         if self.on_reviewed:
             self.on_reviewed()
         if self.queue:
@@ -773,6 +785,10 @@ class ReviewPage(QWidget):
         self._practice_completed_ids.add(submission.word_id)
         self._pending_review_item = None
         self._session_completed += 1
+        if submission.is_correct:
+            self._session_correct += 1
+        else:
+            self._session_wrong += 1
         if self.on_reviewed:
             self.on_reviewed()
         if self.queue:
@@ -829,6 +845,16 @@ class ReviewPage(QWidget):
         self.queue.insert(0, self._last_reviewed_item)
         self.current = None
         self._session_completed = max(0, self._session_completed - 1)
+        if self._last_submission.is_correct:
+            self._session_correct = max(0, self._session_correct - 1)
+        else:
+            self._session_wrong = max(0, self._session_wrong - 1)
+        try:
+            self._session_review_due_times.remove(
+                self._last_submission.schedule.next_review_at
+            )
+        except ValueError:
+            pass
         self._clear_undo()
         if self.on_reviewed:
             self.on_reviewed()
@@ -1083,32 +1109,53 @@ class ReviewPage(QWidget):
         }[self.session_mode]
 
     def _completion_copy(self) -> tuple[str, str]:
+        summary = self._session_summary()
         if (
             self.session_mode is StudySessionMode.PRACTICE
             and self.practice_cluster_label
         ):
             return (
                 "这个词簇已练完一轮",
-                "可退出专项练习，切换常规自由复习范围，或回到易混词分析。",
+                f"{summary} 可退出专项练习，切换常规自由复习范围，或回到易混词分析。",
             )
         return {
             StudySessionMode.COMBINED: (
                 "今日复习已完成",
-                "做得很好，稍后再回来看看吧。",
+                f"{summary} 做得很好，稍后再回来看看吧。",
             ),
             StudySessionMode.LEARN: (
                 "当前待学新词已完成",
-                "可以继续解锁 5 个新词，或转到到期复习。",
+                f"{summary} 可以继续解锁 5 个新词，或转到到期复习。",
             ),
             StudySessionMode.REVIEW: (
                 "当前没有到期复习",
-                "已学单词会在 FSRS 安排的时间重新出现。",
+                f"{summary} 已学单词会在 FSRS 安排的时间重新出现。",
             ),
             StudySessionMode.PRACTICE: (
                 "这个范围已经练完一轮",
-                "自由复习只记录练习结果，不会推迟正式复习日期。",
+                f"{summary} 自由复习只记录练习结果，不会推迟正式复习日期。",
             ),
         }[self.session_mode]
+
+    def _session_summary(self) -> str:
+        if self._session_completed <= 0:
+            return "本轮没有完成单词。"
+        if self.session_mode is StudySessionMode.PRACTICE:
+            return (
+                f"本轮完成 {self._session_completed} 个：想起 "
+                f"{self._session_correct}，没想起 {self._session_wrong}。"
+            )
+        next_due = min(self._session_review_due_times, default=None)
+        due_text = (
+            next_due.astimezone().strftime("%m-%d %H:%M")
+            if next_due is not None
+            else "稍后"
+        )
+        return (
+            f"本轮完成 {self._session_completed} 个：答对 "
+            f"{self._session_correct}，需加强 {self._session_wrong}；"
+            f"最早复习 {due_text}。"
+        )
 
     def _empty_progress_text(self) -> str:
         if (

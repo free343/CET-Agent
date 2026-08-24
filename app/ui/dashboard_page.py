@@ -23,7 +23,13 @@ logger = logging.getLogger(__name__)
 
 
 class MetricCard(QFrame):
-    def __init__(self, title: str) -> None:
+    def __init__(
+        self,
+        title: str,
+        *,
+        action_text: str | None = None,
+        on_action: Callable[[], object] | None = None,
+    ) -> None:
         super().__init__()
         self.setObjectName("Card")
         layout = QVBoxLayout(self)
@@ -33,6 +39,15 @@ class MetricCard(QFrame):
         self.value.setObjectName("Metric")
         layout.addWidget(caption)
         layout.addWidget(self.value)
+        self.action_button: QPushButton | None = None
+        if action_text is not None:
+            self.action_button = QPushButton(action_text)
+            self.action_button.setObjectName("LinkButton")
+            self.action_button.setAccessibleName(f"打开{title}")
+            self.action_button.setEnabled(on_action is not None)
+            if on_action is not None:
+                self.action_button.clicked.connect(on_action)
+            layout.addWidget(self.action_button)
 
 
 class DashboardPage(QWidget):
@@ -40,6 +55,8 @@ class DashboardPage(QWidget):
         self,
         service: LearningService,
         on_open_word: Callable[[LinkedWordReference], None] | None = None,
+        on_open_new: Callable[[], object] | None = None,
+        on_open_due: Callable[[], object] | None = None,
     ) -> None:
         super().__init__()
         self.service = service
@@ -59,8 +76,16 @@ class DashboardPage(QWidget):
 
         metrics = QGridLayout()
         metrics.setSpacing(14)
-        self.new = MetricCard("待学新词")
-        self.due = MetricCard("到期复习")
+        self.new = MetricCard(
+            "待学新词",
+            action_text="开始学习",
+            on_action=on_open_new,
+        )
+        self.due = MetricCard(
+            "到期复习",
+            action_text="开始复习",
+            on_action=on_open_due,
+        )
         self.completed = MetricCard("今日学习记录")
         self.accuracy = MetricCard("近 7 天正确率")
         self.streak = MetricCard("连续学习天数")
