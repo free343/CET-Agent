@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import partial
 
-from PySide6.QtCore import QObject
+from PySide6.QtCore import QObject, QTimer
 
 from app.infrastructure.pronunciation import PronunciationPlayer
 from app.services.lexical_fact_view import LinkedWordReference
@@ -95,7 +95,19 @@ class WordDetailController(QObject):
             return
         self.dialog.set_view(result, can_go_back=bool(self._history))
         if self.pronunciation_player is not None:
-            self.pronunciation_player.play(result.word)
+            QTimer.singleShot(
+                0,
+                partial(self._autoplay, generation, result.word),
+            )
+
+    def _autoplay(self, generation: int, word: str) -> None:
+        if (
+            generation != self._generation
+            or not self.dialog.isVisible()
+            or self.pronunciation_player is None
+        ):
+            return
+        self.pronunciation_player.play(word)
 
     def _failed(self, generation: int, message: str) -> None:
         if generation == self._generation:

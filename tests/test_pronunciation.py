@@ -165,6 +165,7 @@ def test_detail_controller_autoplays_only_the_accepted_generation() -> None:
     player = FakePlayer()
     controller = WordDetailController(object(), pronunciation_player=player)  # type: ignore[arg-type]
     controller._generation = 2
+    controller.dialog.show()
     view = WordDetailView(
         reference=LinkedWordReference(word="major", meaning="主要的"),
         word="major",
@@ -178,6 +179,10 @@ def test_detail_controller_autoplays_only_the_accepted_generation() -> None:
     controller._loaded(1, view)
     assert player.words == []
     controller._loaded(2, view)
+    # Autoplay must wait until Qt has returned to the GUI event loop and the
+    # freshly populated dialog can actually be presented.
+    assert player.words == []
+    app.processEvents()
     assert player.words == ["major"]
     controller.close()
     controller.dialog.deleteLater()
