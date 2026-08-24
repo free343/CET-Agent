@@ -1,0 +1,108 @@
+{
+  "ecdict": {
+    "current_form_conflict_samples_by_role": {
+      "past": [
+        {"current": "admited", "ecdict": ["admitted"], "role": "past", "word": "admit"},
+        {"current": "arised", "ecdict": ["arose"], "role": "past", "word": "arise"},
+        {"current": "awaked", "ecdict": ["awoke"], "role": "past", "word": "awake"},
+        {"current": "baned", "ecdict": ["banned"], "role": "past", "word": "ban"},
+        {"current": "bared", "ecdict": ["barred"], "role": "past", "word": "bar"},
+        {"current": "barreled", "ecdict": ["barrelled"], "role": "past", "word": "barrel"}
+      ],
+      "past_participle": [
+        {"current": "admited", "ecdict": ["admitted"], "role": "past_participle", "word": "admit"},
+        {"current": "arised", "ecdict": ["arisen"], "role": "past_participle", "word": "arise"},
+        {"current": "awaked", "ecdict": ["awoken"], "role": "past_participle", "word": "awake"},
+        {"current": "baned", "ecdict": ["banned"], "role": "past_participle", "word": "ban"},
+        {"current": "bared", "ecdict": ["barred"], "role": "past_participle", "word": "bar"},
+        {"current": "barreled", "ecdict": ["barrelled"], "role": "past_participle", "word": "barrel"}
+      ],
+      "plural": [
+        {"current": "appendixes", "ecdict": ["appendices"], "role": "plural", "word": "appendix"},
+        {"current": "bacteriums", "ecdict": ["bacteria"], "role": "plural", "word": "bacterium"},
+        {"current": "brieves", "ecdict": ["briefs"], "role": "plural", "word": "brief"},
+        {"current": "bureaus", "ecdict": ["bureaux"], "role": "plural", "word": "bureau"},
+        {"current": "cargos", "ecdict": ["cargoes"], "role": "plural", "word": "cargo"},
+        {"current": "cattles", "ecdict": ["cattle"], "role": "plural", "word": "cattle"}
+      ],
+      "present_participle": [
+        {"current": "abandonning", "ecdict": ["abandoning"], "role": "present_participle", "word": "abandon"},
+        {"current": "allowwing", "ecdict": ["allowing"], "role": "present_participle", "word": "allow"},
+        {"current": "alloyying", "ecdict": ["alloying"], "role": "present_participle", "word": "alloy"},
+        {"current": "alterring", "ecdict": ["altering"], "role": "present_participle", "word": "alter"},
+        {"current": "anchorring", "ecdict": ["anchoring"], "role": "present_participle", "word": "anchor"},
+        {"current": "angerring", "ecdict": ["angering"], "role": "present_participle", "word": "anger"}
+      ],
+      "third_person_singular": [
+        {"current": "enrolls", "ecdict": ["enrols"], "role": "third_person_singular", "word": "enroll"},
+        {"current": "fells", "ecdict": ["falls"], "role": "third_person_singular", "word": "fell"},
+        {"current": "meshes", "ecdict": ["meshs"], "role": "third_person_singular", "word": "mesh"},
+        {"current": "picnics", "ecdict": ["picnic"], "role": "third_person_singular", "word": "picnic"},
+        {"current": "shampooes", "ecdict": ["shampoos"], "role": "third_person_singular", "word": "shampoo"},
+        {"current": "torpedoes", "ecdict": ["torpedos"], "role": "third_person_singular", "word": "torpedo"}
+      ]
+    },
+    "current_form_role_conflicts": 827,
+    "current_form_role_conflicts_by_role": {
+      "past": 251,
+      "past_participle": 258,
+      "plural": 47,
+      "present_participle": 265,
+      "third_person_singular": 6
+    },
+    "current_form_roles_corroborated": 9780,
+    "current_form_roles_corroborated_by_role": {
+      "past": 1642,
+      "past_participle": 1635,
+      "plural": 2998,
+      "present_participle": 1634,
+      "third_person_singular": 1871
+    },
+    "exchange_code_headword_counts": {
+      "0": 124,
+      "1": 124,
+      "3": 2009,
+      "d": 2034,
+      "i": 2097,
+      "p": 2052,
+      "r": 153,
+      "s": 3252,
+      "t": 128
+    },
+    "headwords_with_exchange": 3915,
+    "headwords_with_form_exchange": 3906,
+    "missing_current_forms_with_source_candidate": 224,
+    "target_headwords_missing": 0,
+    "target_headwords_present": 4611
+  },
+  "inputs": {
+    "lexical_fact_rows": 4611,
+    "manifest_sha256": "92b38dd6a1b6be526f3b795894cc52c309fea6aaac2b5fd0899a97c6306193a8",
+    "source_sha256": {
+      "ecdict": "1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf",
+      "oewn-2025": "9ca6d1dcb75f822fdd66617f7d9da48142ace38dd544d6ad5e2feca1674ad3fe",
+      "omw-cmn-2": "7d07af60a6ced0cedc4ca114d0b60a796d3f138df0f3be21f6322e53d004e91c"
+    },
+    "vocabulary_rows": 4611
+  },
+  "mode": "candidate-only; no formal artifact or database mutation",
+  "promotion_gate": {
+    "forms": "exact ECDICT headword + documented exchange role + no unresolved conflict; irregular/high-risk forms require sampled human audit",
+    "missing_policy": "hide missing content; never ask an LLM to invent it",
+    "relations": "Open English WordNet synset/explicit antonym + matching ILI Chinese labels + source-meaning overlap + POS/sense grouping + human pilot"
+  },
+  "schema_version": 1,
+  "wordnet_relations": {
+    "sense_groups": 21913,
+    "sense_groups_with_chinese_labels": 10187,
+    "strict_aligned_antonym_edges": 623,
+    "strict_aligned_synonym_edges": 9931,
+    "strict_chinese_aligned_sense_groups": 4626,
+    "target_headwords_missing": 28,
+    "target_headwords_present": 4583,
+    "words_with_chinese_sense_labels": 3872,
+    "words_with_one_review_ready_relation_group": 1629,
+    "words_with_relation_candidates": 4119,
+    "words_with_strict_aligned_relation_candidates": 2753
+  }
+}

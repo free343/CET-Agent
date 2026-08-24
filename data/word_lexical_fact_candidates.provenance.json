@@ -1,0 +1,35 @@
+{
+  "artifact": {
+    "counts": {
+      "candidate_entries": 11725,
+      "candidate_kind_corroborated": 9780,
+      "candidate_kind_deterministic_rule_candidate": 750,
+      "candidate_kind_missing_current_form": 1118,
+      "candidate_kind_orthographic_variant_candidate": 77,
+      "records_with_candidates": 3906,
+      "source_additions": 1118,
+      "source_agreements": 9780,
+      "source_conflicts": 827,
+      "total": 4611
+    },
+    "file": "word_lexical_fact_candidates.jsonl",
+    "rows": 4611,
+    "sha256": "7e5f464bac39dee2658cfcae44ec44b8d2ea4907855e525356da01c619ca3129"
+  },
+  "candidate_status": "candidate_only",
+  "schema_version": 1,
+  "source_manifest": {
+    "file": "lexical_source_manifest.json",
+    "sha256": "92b38dd6a1b6be526f3b795894cc52c309fea6aaac2b5fd0899a97c6306193a8"
+  },
+  "sources": [
+    {
+      "file": "ecdict.csv",
+      "license": "MIT",
+      "sha256": "1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf",
+      "source_id": "ecdict",
+      "version": "bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b"
+    }
+  ],
+  "transformation": "ecdict-exchange-candidates-v1; exact headwords and documented exchange codes; conflicts are classified heuristically and remain candidate-only"
+}

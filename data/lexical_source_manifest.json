@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "policy_version": "lexical-sources-v1",
+  "reviewed_at": "2026-08-24",
+  "sources": [
+    {
+      "source_id": "ecdict",
+      "name": "ECDICT",
+      "version": "bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b",
+      "filename": "ecdict.csv",
+      "url": "https://raw.githubusercontent.com/skywind3000/ECDICT/bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b/ecdict.csv",
+      "sha256": "1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf",
+      "review_status": "approved",
+      "license": {
+        "identifier": "MIT",
+        "reference": "https://raw.githubusercontent.com/skywind3000/ECDICT/bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b/LICENSE",
+        "redistribution": true,
+        "modification": true,
+        "commercial_use": true,
+        "notice_required": true,
+        "share_alike": false
+      },
+      "approved_uses": [
+        "forms",
+        "part_of_speech",
+        "english_gloss",
+        "chinese_gloss",
+        "frequency"
+      ],
+      "attribution": [
+        "ECDICT, Copyright (c) 2025 Linwei, MIT License"
+      ],
+      "notes": "Use exact-headword rows and the documented exchange codes only. Source evidence may corroborate or replace a rule-generated form after conflict checks; it does not establish sense-bound synonyms."
+    },
+    {
+      "source_id": "oewn-2025",
+      "name": "Open English WordNet",
+      "version": "2025",
+      "filename": "english-wordnet-2025.xml.gz",
+      "url": "https://en-word.net/static/english-wordnet-2025.xml.gz",
+      "sha256": "9ca6d1dcb75f822fdd66617f7d9da48142ace38dd544d6ad5e2feca1674ad3fe",
+      "review_status": "approved",
+      "license": {
+        "identifier": "CC-BY-4.0-and-WordNet",
+        "reference": "https://raw.githubusercontent.com/globalwordnet/english-wordnet/2025-edition/LICENSE.md",
+        "redistribution": true,
+        "modification": true,
+        "commercial_use": true,
+        "notice_required": true,
+        "share_alike": false
+      },
+      "approved_uses": [
+        "english_gloss",
+        "relation_candidates",
+        "sense_alignment"
+      ],
+      "attribution": [
+        "Open English WordNet 2025, The Open English WordNet Team, CC BY 4.0",
+        "Derived from Princeton WordNet under the WordNet License"
+      ],
+      "notes": "Synset membership and explicit antonym links are candidate evidence only. Promotion requires part-of-speech agreement plus a separately corroborated Chinese sense; the source license requires attribution to both projects."
+    },
+    {
+      "source_id": "omw-cmn-2",
+      "name": "Chinese Open Wordnet",
+      "version": "2.0",
+      "filename": "omw-cmn-2.0.tar.xz",
+      "url": "https://github.com/omwn/omw-data/releases/download/v2.0/omw-cmn-2.0.tar.xz",
+      "sha256": "7d07af60a6ced0cedc4ca114d0b60a796d3f138df0f3be21f6322e53d004e91c",
+      "review_status": "approved",
+      "license": {
+        "identifier": "Chinese-Open-Wordnet-License",
+        "reference": "https://github.com/omwn/omw-data/blob/main/wns/cow/LICENSE",
+        "redistribution": true,
+        "modification": true,
+        "commercial_use": true,
+        "notice_required": true,
+        "share_alike": false
+      },
+      "approved_uses": [
+        "chinese_gloss",
+        "sense_alignment"
+      ],
+      "attribution": [
+        "Chinese Open Wordnet, Copyright 2013, 2014 Francis Bond and Shan Wang"
+      ],
+      "notes": "The exact release asset embeds its terms at omw-cmn/LICENSE and data at omw-cmn/omw-cmn.xml. Match Open English WordNet through the shared ILI, never by list position or guessed translation."
+    }
+  ]
+}

@@ -28,6 +28,8 @@ MAX_LEXICAL_SENSE_CHARS = 160
 MAX_LEXICAL_RELATION_CHARS = 80
 MAX_LEXICAL_RELATION_MEANING_CHARS = 120
 MAX_LEXICAL_RELATION_NOTE_CHARS = 240
+MAX_LEXICAL_EVIDENCE_LOCATOR_CHARS = 200
+MAX_LEXICAL_CANDIDATE_NOTE_CHARS = 240
 
 
 class StrictSchema(BaseModel):
@@ -226,3 +228,161 @@ class LexicalFactRecord(StrictSchema):
     status: LexicalSectionStatus
     source: str = Field(min_length=1, max_length=120)
     content_hash: str = Field(min_length=64, max_length=64)
+
+
+LexicalSourceUse = Literal[
+    "forms",
+    "part_of_speech",
+    "english_gloss",
+    "chinese_gloss",
+    "frequency",
+    "relation_candidates",
+    "sense_alignment",
+]
+
+
+class LexicalSourceLicense(StrictSchema):
+    """Reviewed redistribution terms for one exact lexical source release."""
+
+    identifier: str = Field(min_length=1, max_length=80)
+    reference: str = Field(min_length=1, max_length=500)
+    redistribution: bool
+    modification: bool
+    commercial_use: bool
+    notice_required: bool
+    share_alike: bool
+
+
+class LexicalSourceContract(StrictSchema):
+    """Pinned source identity plus the fields it may contribute."""
+
+    source_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    name: str = Field(min_length=1, max_length=120)
+    version: str = Field(min_length=1, max_length=120)
+    filename: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+    url: str = Field(min_length=1, max_length=500)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_status: Literal["approved", "candidate", "rejected"]
+    license: LexicalSourceLicense
+    approved_uses: list[LexicalSourceUse] = Field(max_length=7)
+    attribution: list[str] = Field(max_length=6)
+    notes: str = Field(default="", max_length=800)
+
+
+class LexicalSourceManifest(StrictSchema):
+    """Versioned allowlist consumed only by the offline lexical pipeline."""
+
+    schema_version: Literal[1]
+    policy_version: Literal["lexical-sources-v1"]
+    reviewed_at: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    sources: list[LexicalSourceContract] = Field(min_length=1, max_length=10)
+
+
+LexicalCandidateRole = Literal[
+    "plural",
+    "past",
+    "past_participle",
+    "present_participle",
+    "third_person_singular",
+    "comparative",
+    "superlative",
+]
+LexicalCandidateOutcome = Literal[
+    "source_addition",
+    "source_agrees",
+    "source_conflict",
+]
+LexicalCandidateConflictKind = Literal[
+    "missing_current_form",
+    "corroborated",
+    "orthographic_variant_candidate",
+    "possible_pos_or_sense",
+    "deterministic_rule_candidate",
+    "source_irregular_candidate",
+]
+LexicalCandidateFormValue = Annotated[
+    str,
+    Field(min_length=1, max_length=MAX_LEXICAL_FORM_CHARS),
+]
+
+
+class LexicalEvidence(StrictSchema):
+    """A bounded, replayable pointer to one source field."""
+
+    source_id: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    source_version: str = Field(min_length=1, max_length=120)
+    field: str = Field(min_length=1, max_length=40)
+    locator: str = Field(min_length=1, max_length=MAX_LEXICAL_EVIDENCE_LOCATOR_CHARS)
+    source_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class LexicalFormCandidate(StrictSchema):
+    """One source-backed role comparison; never a promoted learner fact."""
+
+    role: LexicalCandidateRole
+    current_forms: list[LexicalCandidateFormValue] = Field(max_length=8)
+    source_forms: list[LexicalCandidateFormValue] = Field(max_length=8)
+    outcome: LexicalCandidateOutcome
+    conflict_kind: LexicalCandidateConflictKind
+    evidence: list[LexicalEvidence] = Field(min_length=1, max_length=2)
+    note: str = Field(default="", max_length=MAX_LEXICAL_CANDIDATE_NOTE_CHARS)
+
+
+class LexicalFactCandidateRecord(StrictSchema):
+    """Complete candidate-only form evidence for one bundled headword."""
+
+    schema_version: Literal[1]
+    word: str = Field(min_length=1, max_length=100)
+    level: Literal["CET4", "CET6"]
+    source_kind: Literal["curated", "open"]
+    source_meaning: str = Field(min_length=1, max_length=500)
+    candidates: list[LexicalFormCandidate] = Field(max_length=8)
+    candidate_status: Literal["candidate_only"]
+    source_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source: str = Field(min_length=1, max_length=120)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class LexicalRelationCandidateItem(StrictSchema):
+    """One WordNet/COW relation target retained for the review pilot."""
+
+    word: str = Field(min_length=1, max_length=MAX_LEXICAL_RELATION_CHARS)
+    meaning: str = Field(
+        min_length=1,
+        max_length=MAX_LEXICAL_RELATION_MEANING_CHARS,
+    )
+    english_definition: str = Field(max_length=MAX_LEXICAL_SENSE_CHARS)
+    frequency: int = Field(ge=0, le=1_000_000)
+    evidence: list[LexicalEvidence] = Field(min_length=2, max_length=3)
+    note: str = Field(default="", max_length=MAX_LEXICAL_RELATION_NOTE_CHARS)
+
+
+class LexicalRelationCandidateGroup(StrictSchema):
+    """A sense-bound candidate relation group; it is not yet verified."""
+
+    relation_type: Literal["synonym", "antonym"]
+    synset_id: str = Field(min_length=1, max_length=120)
+    ili: str = Field(min_length=1, max_length=120)
+    part_of_speech: str = Field(min_length=1, max_length=MAX_WORD_FAMILY_POS_CHARS)
+    sense: str = Field(min_length=1, max_length=MAX_LEXICAL_SENSE_CHARS)
+    items: list[LexicalRelationCandidateItem] = Field(min_length=1, max_length=6)
+
+
+class LexicalRelationCandidateRecord(StrictSchema):
+    """Complete candidate-only relation evidence for one headword."""
+
+    schema_version: Literal[1]
+    word: str = Field(min_length=1, max_length=100)
+    level: Literal["CET4", "CET6"]
+    source_kind: Literal["curated", "open"]
+    source_meaning: str = Field(min_length=1, max_length=500)
+    groups: list[LexicalRelationCandidateGroup] = Field(max_length=4)
+    selection_status: Literal[
+        "selected_single_sense",
+        "excluded_multiple_senses",
+        "no_aligned_sense",
+    ]
+    candidate_status: Literal["candidate_only"]
+    source_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    source: str = Field(min_length=1, max_length=120)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")

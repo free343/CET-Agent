@@ -1,0 +1,48 @@
+{
+  "artifact": {
+    "counts": {
+      "antonym_groups": 112,
+      "excluded_multiple_senses": 542,
+      "groups": 1237,
+      "items": 1777,
+      "no_aligned_sense": 2846,
+      "selected_single_sense": 1223,
+      "synonym_groups": 1125,
+      "total": 4611,
+      "unique_relation_targets": 1251
+    },
+    "file": "word_lexical_relation_candidates.jsonl",
+    "rows": 4611,
+    "sha256": "f41e9872028c57b0a6837d955166bed5797e96ad8ba61cb64348159ea288eb0c"
+  },
+  "candidate_status": "candidate_only",
+  "schema_version": 1,
+  "source_manifest": {
+    "file": "lexical_source_manifest.json",
+    "sha256": "92b38dd6a1b6be526f3b795894cc52c309fea6aaac2b5fd0899a97c6306193a8"
+  },
+  "sources": [
+    {
+      "file": "ecdict.csv",
+      "license": "MIT",
+      "sha256": "1a6947e04785db63613a92e14903cdae7954f7e84860b10e68e5c7cbb3f9c3cf",
+      "source_id": "ecdict",
+      "version": "bc015ed2e24a7abef49fc6dbbb7fe32c1dadaf8b"
+    },
+    {
+      "file": "english-wordnet-2025.xml.gz",
+      "license": "CC-BY-4.0-and-WordNet",
+      "sha256": "9ca6d1dcb75f822fdd66617f7d9da48142ace38dd544d6ad5e2feca1674ad3fe",
+      "source_id": "oewn-2025",
+      "version": "2025"
+    },
+    {
+      "file": "omw-cmn-2.0.tar.xz",
+      "license": "Chinese-Open-Wordnet-License",
+      "sha256": "7d07af60a6ced0cedc4ca114d0b60a796d3f138df0f3be21f6322e53d004e91c",
+      "source_id": "omw-cmn-2",
+      "version": "2.0"
+    }
+  ],
+  "transformation": "wordnet-cow-relation-candidates-v1; one Chinese-overlap-aligned WordNet sense at most, single-word in-bank targets, ECDICT frequency greater than zero, and at most six targets per relation type"
+}
