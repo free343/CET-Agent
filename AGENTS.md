@@ -418,7 +418,7 @@ Manual review of AI-generated content, candidate promotion, and trust-label rede
 7. **Low-priority database hygiene (complete 2026-08-24).** Schema v14 provides a serialized, idempotent cleanup that removes only formal/candidate-empty lexical-fact placeholders. The live source database removed 413 rows, retained 328 candidate-only rows, and passed integrity/foreign-key checks; no ad-hoc delete was used.
 8. **Current-source distribution rebuild after functional stabilization (complete 2026-08-24).** Rebuilt the PyInstaller onedir package and unsigned Inno Setup installer from the current schema-v14 source, then smoke-tested both the onedir tree and an isolated installed copy. Application icons, Windows version resources, signing, hosted CI, and a Git remote remain separately deferred by user direction.
 
-Recommended order is 1 → 2 → 3 → 4, then 5/6; items 7/8 are release-maintenance work rather than immediate learning-experience improvements.
+All eight active optimization items are complete as of 2026-08-24. Future work should address only newly discovered defects or explicitly reopened backlog items; editorial review/promotion, trust-label redesign, icons, version resources, signing, hosted CI, and remote delivery remain deferred by user direction.
 
 ### Deferred delivery work
 
