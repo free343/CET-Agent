@@ -2,6 +2,10 @@
 
 CET-Agent is an adaptive desktop vocabulary learning agent for CET-4/CET-6 students.
 
+本项目代码以 MIT License 发布，版权标识为 `__free`（2026）。许可证全文见根目录 [`LICENSE`](LICENSE)。
+
+需要特别区分代码与数据：`data/` 中的词库、词典事实、来源候选及其生成产物遵守各自的来源许可证和 provenance 说明；第三方依赖与数据的版权、署名和再分发要求见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)、[`data/OPEN_VOCABULARY_LICENSE.md`](data/OPEN_VOCABULARY_LICENSE.md) 及各数据旁的 provenance 文件。根目录 MIT 许可证不会覆盖这些具有独立许可声明的材料。
+
 它面向中国大学生，以本地学习记录为依据主动安排复习、发现个人易混词模式，并在需要解释时调用小型本地 LLM。它不是通用聊天机器人，也不让生成式模型控制学习调度。
 
 > **Algorithms discover problems. LLMs explain problems.**
@@ -299,3 +303,7 @@ tests/               # 核心算法和服务测试
 ```
 
 日志写入 `logs/cet-agent.log` 并轮转。日志记录启动、复习、提醒、图分析和模型错误，但不记录 API key。
+
+## 许可证与贡献
+
+代码贡献请先阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。安全问题请按 [`SECURITY.md`](SECURITY.md) 的方式私下报告，不要在公开 Issue 中提交密钥或个人学习数据库。

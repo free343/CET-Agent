@@ -22,6 +22,7 @@ data_files = (
     ),
     (project_root / "data" / "lexical_source_manifest.json", "data"),
     (project_root / ".env.example", "."),
+    (project_root / "LICENSE", "."),
     (project_root / "README.md", "."),
     (project_root / "THIRD_PARTY_NOTICES.md", "."),
 )
