@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QResizeEvent
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QListWidgetItem,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -111,6 +113,8 @@ class PronunciationInstallButton(QPushButton):
 class PronunciationListRow(QWidget):
     """A list row with the legacy text item retained for selection/tests."""
 
+    _HEIGHT_GUARD = 2
+
     def __init__(
         self,
         word: str,
@@ -121,6 +125,7 @@ class PronunciationListRow(QWidget):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("PronunciationListRow")
+        self._list_item: QListWidgetItem | None = None
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 7, 8, 7)
         layout.setSpacing(10)
@@ -147,3 +152,28 @@ class PronunciationListRow(QWidget):
         button.set_word(word)
         self.play_button = button
         layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignTop)
+
+    def bind_to_item(self, item: QListWidgetItem) -> None:
+        """Keep the item width neutral and its height aligned with wrapped text."""
+        self._list_item = item
+        parent = self.parentWidget()
+        width = parent.width() if parent is not None else self.width()
+        self._sync_item_size(width)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._sync_item_size(event.size().width())
+
+    def _sync_item_size(self, width: int) -> None:
+        if self._list_item is None:
+            return
+        layout = self.layout()
+        if layout is None:
+            return
+        available_width = max(1, int(width))
+        wrapped_height = layout.heightForWidth(available_width)
+        preferred_height = layout.sizeHint().height()
+        height = max(preferred_height, wrapped_height) + self._HEIGHT_GUARD
+        size_hint = QSize(0, height)
+        if self._list_item.sizeHint() != size_hint:
+            self._list_item.setSizeHint(size_hint)

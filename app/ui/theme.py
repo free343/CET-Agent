@@ -59,13 +59,13 @@ QPushButton#WordDetailBackButton, QPushButton#WordDetailCloseButton { background
 QPushButton#WordDetailBackButton:hover, QPushButton#WordDetailCloseButton:hover { background: #eef2ff; color: #312e81; border-color: #818cf8; }
 QScrollArea#WordDetailScroll { background: white; border: 1px solid #e2e8f0; border-radius: 9px; }
 QListWidget#WordbookList { background: white; border: 1px solid #d7dce5; border-radius: 10px; padding: 6px; }
-QListWidget#WordbookList::item { color: #1e293b; border-bottom: 1px solid #eef2f7; padding: 11px 10px; }
+QListWidget#WordbookList::item { color: #1e293b; border-bottom: 1px solid #eef2f7; padding: 0; }
 QListWidget#WordbookList::item:selected { background: #eef2ff; color: #312e81; }
 QListWidget#MasteredList { background: white; border: 1px solid #d7dce5; border-radius: 10px; padding: 6px; }
-QListWidget#MasteredList::item { color: #1e293b; border-bottom: 1px solid #eef2f7; padding: 11px 10px; }
+QListWidget#MasteredList::item { color: #1e293b; border-bottom: 1px solid #eef2f7; padding: 0; }
 QListWidget#MasteredList::item:selected { background: #ecfdf5; color: #166534; }
 QListWidget#VocabularyList { background: white; border: 1px solid #d7dce5; border-radius: 10px; padding: 6px; }
-QListWidget#VocabularyList::item { color: #1e293b; border-bottom: 1px solid #eef2f7; padding: 11px 10px; }
+QListWidget#VocabularyList::item { color: #1e293b; border-bottom: 1px solid #eef2f7; padding: 0; }
 QListWidget#VocabularyList::item:selected { background: #eef2ff; color: #312e81; }
 QPushButton#ChoiceButton { background: white; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 12px; text-align: left; }
 QPushButton#ChoiceButton:hover { border-color: #2563eb; background: #eff6ff; }

@@ -125,7 +125,7 @@ class MasteredPage(QWidget):
                 self.word_list,
             )
             self.word_list.setItemWidget(item, row)
-            item.setSizeHint(row.sizeHint())
+            row.bind_to_item(item)
         self.count_label.setText(f"{len(items)} 个单词")
         self.status_label.setText(
             "选择词条后可以恢复学习。" if items else "暂无完全掌握的单词。"

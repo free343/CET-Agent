@@ -150,7 +150,7 @@ class VocabularyPage(QWidget):
                 self.word_list,
             )
             self.word_list.setItemWidget(list_item, row)
-            list_item.setSizeHint(row.sizeHint())
+            row.bind_to_item(list_item)
         self.count_label.setText(f"{len(items)} 个结果")
         self.status_label.setText(
             "双击词条或选择后查看词卡。" if items else "没有找到匹配的本地词汇。"

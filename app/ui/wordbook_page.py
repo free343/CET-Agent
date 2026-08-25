@@ -127,7 +127,7 @@ class WordbookPage(QWidget):
                 self.word_list,
             )
             self.word_list.setItemWidget(item, row)
-            item.setSizeHint(row.sizeHint())
+            row.bind_to_item(item)
         self.count_label.setText(f"{len(items)} 个收藏")
         self.status_label.setText(
             "选择词条后可以取消收藏。" if items else "暂无收藏的单词。"
