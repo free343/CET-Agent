@@ -5,6 +5,7 @@ import threading
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from app.services.wordbook_service import WordbookService
@@ -29,8 +30,11 @@ def test_wordbook_page_lists_and_removes_a_favorite(database, word_id) -> None:
     _wait_until_idle(page, app)
 
     assert page.word_list.count() == 1
-    assert "adapt" in page.word_list.item(0).text()
-    assert "适应；改编" in page.word_list.item(0).text()
+    accessible_text = str(
+        page.word_list.item(0).data(Qt.ItemDataRole.AccessibleTextRole) or ""
+    )
+    assert "adapt" in accessible_text
+    assert "适应；改编" in accessible_text
     assert "1 个收藏" in page.count_label.text()
 
     page.word_list.setCurrentRow(0)

@@ -284,6 +284,6 @@ def test_wordbook_page_renders_generated_example_and_translation(
     _wait_until_idle(page, app)
 
     assert page.word_list.count() == 1
-    text = page.word_list.item(0).text()
+    text = str(page.word_list.item(0).data(Qt.ItemDataRole.AccessibleTextRole) or "")
     assert "学生适应新的环境。" in text
     page.deleteLater()

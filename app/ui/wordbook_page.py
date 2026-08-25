@@ -125,6 +125,7 @@ class WordbookPage(QWidget):
                 f"{word.meaning}{example}{translation}",
                 self.pronunciation_player,
                 self.word_list,
+                level=word.level.value,
             )
             self.word_list.setItemWidget(item, row)
             row.bind_to_item(item)

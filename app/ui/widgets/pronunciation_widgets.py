@@ -111,7 +111,7 @@ class PronunciationInstallButton(QPushButton):
 
 
 class PronunciationListRow(QWidget):
-    """A list row with the legacy text item retained for selection/tests."""
+    """A list row that is the item's sole visible text-painting layer."""
 
     _HEIGHT_GUARD = 2
 
@@ -122,6 +122,8 @@ class PronunciationListRow(QWidget):
         body: str,
         player: Any | None,
         parent: QWidget | None = None,
+        *,
+        level: str = "",
     ) -> None:
         super().__init__(parent)
         self.setObjectName("PronunciationListRow")
@@ -141,6 +143,11 @@ class PronunciationListRow(QWidget):
             phonetic_label = QLabel(phonetic)
             phonetic_label.setObjectName("PronunciationListPhonetic")
             heading.addWidget(phonetic_label)
+        normalized_level = " ".join(str(level).split())[:40]
+        if normalized_level:
+            level_label = QLabel(f"[{normalized_level}]")
+            level_label.setObjectName("PronunciationListLevel")
+            heading.addWidget(level_label)
         heading.addStretch()
         text_column.addLayout(heading)
         body_label = QLabel(body)
@@ -154,7 +161,11 @@ class PronunciationListRow(QWidget):
         layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignTop)
 
     def bind_to_item(self, item: QListWidgetItem) -> None:
-        """Keep the item width neutral and its height aligned with wrapped text."""
+        """Keep one visible text layer and align the item to wrapped content."""
+        display_text = str(item.data(Qt.ItemDataRole.DisplayRole) or "")
+        if display_text:
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, display_text)
+            item.setText("")
         self._list_item = item
         parent = self.parentWidget()
         width = parent.width() if parent is not None else self.width()

@@ -148,6 +148,7 @@ class VocabularyPage(QWidget):
                 item.meaning,
                 self.pronunciation_player,
                 self.word_list,
+                level=item.level,
             )
             self.word_list.setItemWidget(list_item, row)
             row.bind_to_item(list_item)

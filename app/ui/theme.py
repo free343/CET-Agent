@@ -20,9 +20,10 @@ QPushButton#PronunciationInstallButton:hover { background: #ffedd5; border-color
 QLabel#PronunciationStatus { color: #475569; }
 QLabel#PronunciationSetupNote { color: #64748b; }
 QWidget#PronunciationListRow { background: transparent; }
-QLabel#PronunciationListWord { color: #1e293b; font-size: 16px; font-weight: 700; }
-QLabel#PronunciationListPhonetic { color: #64748b; }
-QLabel#PronunciationListBody { color: #475569; }
+QLabel#PronunciationListWord { background: transparent; color: #1e293b; font-size: 16px; font-weight: 700; }
+QLabel#PronunciationListPhonetic { background: transparent; color: #64748b; }
+QLabel#PronunciationListLevel { background: transparent; color: #64748b; font-size: 12px; }
+QLabel#PronunciationListBody { background: transparent; color: #475569; }
 QPushButton#PrimaryButton { background: #2563eb; color: white; border: none; border-radius: 8px; padding: 10px 18px; font-weight: 600; }
 QPushButton#PrimaryButton:hover { background: #1d4ed8; }
 QPushButton#SecondaryButton { background: white; color: #334155; border: 1px solid #cbd5e1; border-radius: 8px; padding: 9px 14px; }

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLabel, QListWidget
 
 from app.db.models import WordLevel
@@ -37,6 +38,12 @@ def _assert_first_row_fits(page, app: QApplication) -> None:
     item = word_list.item(0)
     row = word_list.itemWidget(item)
     assert row is not None
+    accessible_text = str(item.data(Qt.ItemDataRole.AccessibleTextRole) or "")
+    assert item.data(Qt.ItemDataRole.DisplayRole) in (None, "")
+    assert "extraordinary" in accessible_text
+    level = row.findChild(QLabel, "PronunciationListLevel")
+    assert level is not None
+    assert level.text() == "[CET4]"
     body = row.findChild(QLabel, "PronunciationListBody")
     assert body is not None
     assert word_list.horizontalScrollBar().maximum() == 0
