@@ -1,0 +1,2 @@
+# Provenance hashes are byte-exact, so text checkouts must be platform-stable.
+* text=auto eol=lf
